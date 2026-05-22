@@ -1,0 +1,11 @@
+file:///C:/jobsicke/dev/timer_be/node_modules/elysia/dist/adapter/web-standard/index.mjs:140
+      throw new Error(
+            ^
+
+Error: WebStandard does not support listen, you might want to export default Elysia.fetch instead
+    at file:///C:/jobsicke/dev/timer_be/node_modules/elysia/dist/adapter/web-standard/index.mjs:140:13
+    at _Elysia.listen (file:///C:/jobsicke/dev/timer_be/node_modules/elysia/dist/index.mjs:165:72)
+    at <anonymous> (C:\jobsicke\dev\timer_be\src\index.ts:64:4)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+Node.js v24.15.0

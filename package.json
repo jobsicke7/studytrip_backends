@@ -1,0 +1,26 @@
+{
+  "name": "timer_be",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev-watch.mjs",
+    "dev:once": "bun src/index.ts",
+    "dev:bun-watch": "bun --watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "bun dist/index.js"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.1.0",
+    "@elysiajs/jwt": "^1.1.0",
+    "dotenv": "^16.4.5",
+    "elysia": "^1.1.0",
+    "google-auth-library": "^9.11.0",
+    "mongodb": "^6.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.2"
+  }
+}
