@@ -65,6 +65,9 @@ const defaultTimerPreferences = {
   pomodoroAlarmOn: true,
   pomodoroFocusWhiteNoise: 'none',
   pomodoroBreakWhiteNoise: 'none',
+  pomodoroFocusWhiteNoiseVolume: 0.42,
+  pomodoroBreakWhiteNoiseVolume: 0.42,
+  whiteNoiseVolume: 0.42,
 };
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
@@ -345,6 +348,9 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         pomodoroAlarmOn: preferences.pomodoroAlarmOn,
         pomodoroFocusWhiteNoise: preferences.pomodoroFocusWhiteNoise,
         pomodoroBreakWhiteNoise: preferences.pomodoroBreakWhiteNoise,
+        pomodoroFocusWhiteNoiseVolume: preferences.pomodoroFocusWhiteNoiseVolume,
+        pomodoroBreakWhiteNoiseVolume: preferences.pomodoroBreakWhiteNoiseVolume,
+        whiteNoiseVolume: preferences.whiteNoiseVolume,
       },
     };
   })
@@ -367,6 +373,9 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         pomodoroAlarmOn: preferences.pomodoroAlarmOn,
         pomodoroFocusWhiteNoise: preferences.pomodoroFocusWhiteNoise,
         pomodoroBreakWhiteNoise: preferences.pomodoroBreakWhiteNoise,
+        pomodoroFocusWhiteNoiseVolume: preferences.pomodoroFocusWhiteNoiseVolume,
+        pomodoroBreakWhiteNoiseVolume: preferences.pomodoroBreakWhiteNoiseVolume,
+        whiteNoiseVolume: preferences.whiteNoiseVolume,
       },
     };
   })
@@ -397,6 +406,9 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         pomodoroAlarmOn: t.Optional(t.Boolean()),
         pomodoroFocusWhiteNoise: t.Optional(t.String()),
         pomodoroBreakWhiteNoise: t.Optional(t.String()),
+        pomodoroFocusWhiteNoiseVolume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
+        pomodoroBreakWhiteNoiseVolume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
+        whiteNoiseVolume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
       }),
     }
   )
@@ -428,18 +440,26 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
   )
   .post(
     '/subjects',
-    async ({ db, authUserId, body }) => {
+    async ({ db, authUserId, body, set }) => {
       const userId = new ObjectId(authUserId);
       const now = new Date();
-      const subjectId = makeSubjectId(body.label, now);
+      const subjects = await ensureSubjects(db, userId);
+      const normalizedLabel = normalizeSubjectLabel(body.label);
+      const conflict = findSubjectLabelConflict(subjects, normalizedLabel);
 
-      const subjects = db.collection<OptionalId<Subject>>('subjects');
-      const count = await subjects.countDocuments({ userId });
+      if (conflict) {
+        set.status = 409;
+        return { error: 'A subject with that name already exists.' };
+      }
+
+      const subjectId = makeSubjectId(normalizedLabel, now);
+      const subjectsCollection = db.collection<OptionalId<Subject>>('subjects');
+      const count = subjects.length;
       const defaultStyle = defaultSubjects[count % defaultSubjects.length] ?? defaultSubjects[0];
-      await subjects.updateOne(
+      await subjectsCollection.updateOne(
         { userId, subjectId },
         {
-          $set: { label: body.label.trim(), updatedAt: now },
+          $set: { label: normalizedLabel, updatedAt: now },
           $setOnInsert: {
             userId,
             subjectId,
@@ -453,7 +473,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         { upsert: true }
       );
 
-      return { subjectId, label: body.label.trim() };
+      return { subjectId, label: normalizedLabel };
     },
     {
       body: t.Object({
@@ -468,11 +488,19 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
     '/subjects/:subjectId',
     async ({ db, authUserId, params, body, set }) => {
       const userId = new ObjectId(authUserId);
-      await ensureSubjects(db, userId);
+      const subjects = await ensureSubjects(db, userId);
       const updates: Partial<Pick<Subject, 'label' | 'color' | 'icon' | 'isActive' | 'updatedAt'>> = {
         updatedAt: new Date(),
       };
-      if (body.label !== undefined) updates.label = body.label.trim();
+      if (body.label !== undefined) {
+        const normalizedLabel = normalizeSubjectLabel(body.label);
+        const conflict = findSubjectLabelConflict(subjects, normalizedLabel, params.subjectId);
+        if (conflict) {
+          set.status = 409;
+          return { error: 'A subject with that name already exists.' };
+        }
+        updates.label = normalizedLabel;
+      }
       if (body.color !== undefined) updates.color = body.color;
       if (body.icon !== undefined) updates.icon = body.icon;
       if (body.isActive !== undefined) updates.isActive = body.isActive;
@@ -933,7 +961,19 @@ async function ensureSubjects(db: Db, userId: ObjectId) {
   const subjects = db.collection<OptionalId<Subject>>('subjects');
   const existing = await subjects.find({ userId }).sort({ order: 1 }).toArray();
   if (existing.length > 0) {
-    return existing;
+    const uniqueSubjects: OptionalId<Subject>[] = [];
+    const seenSubjectIds = new Set<string>();
+
+    for (const subject of existing) {
+      if (seenSubjectIds.has(subject.subjectId)) {
+        continue;
+      }
+
+      seenSubjectIds.add(subject.subjectId);
+      uniqueSubjects.push(subject);
+    }
+
+    return uniqueSubjects;
   }
 
   const now = new Date();
@@ -1022,6 +1062,9 @@ function normalizeTimerPreferences(
       | 'pomodoroAlarmOn'
       | 'pomodoroFocusWhiteNoise'
       | 'pomodoroBreakWhiteNoise'
+      | 'pomodoroFocusWhiteNoiseVolume'
+      | 'pomodoroBreakWhiteNoiseVolume'
+      | 'whiteNoiseVolume'
     >
   >
 ) {
@@ -1048,6 +1091,15 @@ function normalizeTimerPreferences(
         : defaultTimerPreferences.pomodoroAlarmOn,
     pomodoroFocusWhiteNoise: normalizeWhiteNoise(preferences.pomodoroFocusWhiteNoise),
     pomodoroBreakWhiteNoise: normalizeWhiteNoise(preferences.pomodoroBreakWhiteNoise),
+    pomodoroFocusWhiteNoiseVolume: clampRatio(
+      preferences.pomodoroFocusWhiteNoiseVolume ?? preferences.whiteNoiseVolume,
+      defaultTimerPreferences.pomodoroFocusWhiteNoiseVolume
+    ),
+    pomodoroBreakWhiteNoiseVolume: clampRatio(
+      preferences.pomodoroBreakWhiteNoiseVolume ?? preferences.whiteNoiseVolume,
+      defaultTimerPreferences.pomodoroBreakWhiteNoiseVolume
+    ),
+    whiteNoiseVolume: clampRatio(preferences.whiteNoiseVolume, defaultTimerPreferences.whiteNoiseVolume),
   };
 }
 
@@ -1063,10 +1115,18 @@ function clampPreferenceMinutes(value: unknown, fallback: number) {
   return Math.max(1, Math.min(180, Math.round(numeric)));
 }
 
+function clampRatio(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(1, numeric));
+}
+
 async function buildSubjectTotals(db: Db, userId: ObjectId, range: { start: Date; end: Date }) {
-  const totals = await db
+  const sessions = await db
     .collection<OptionalId<StudySession>>('study_sessions')
-    .aggregate<{ _id: string; totalSeconds: number }>([
+    .aggregate<{ stoppedAtResolved: Date | null; durationSeconds: number; subjectId?: string | null }>([
       {
         $addFields: {
           stoppedAtResolved: {
@@ -1083,21 +1143,36 @@ async function buildSubjectTotals(db: Db, userId: ObjectId, range: { start: Date
         $match: {
           userId,
           status: 'stopped',
-          stoppedAtResolved: { $gte: range.start, $lt: range.end },
+          stoppedAtResolved: { $gt: range.start },
           durationSeconds: { $gt: 0 },
         },
       },
-      { $group: { _id: { $ifNull: ['$subjectId', 'korean'] }, totalSeconds: { $sum: '$durationSeconds' } } },
+      {
+        $project: {
+          stoppedAtResolved: 1,
+          durationSeconds: 1,
+          subjectId: 1,
+        },
+      },
     ])
     .toArray();
 
-  return new Map(totals.map((item) => [item._id, item.totalSeconds]));
+  const totals = new Map<string, number>();
+  for (const session of sessions) {
+    const seconds = getSessionOverlapSeconds(session, range.start, range.end);
+    if (seconds > 0) {
+      const subjectId = session.subjectId ?? 'korean';
+      totals.set(subjectId, (totals.get(subjectId) ?? 0) + seconds);
+    }
+  }
+
+  return totals;
 }
 
 async function buildDailyTotals(db: Db, userId: ObjectId, start: Date, end: Date) {
-  const totals = await db
+  const sessions = await db
     .collection<OptionalId<StudySession>>('study_sessions')
-    .aggregate<{ _id: string; totalSeconds: number }>([
+    .aggregate<{ stoppedAtResolved: Date | null; durationSeconds: number }>([
       {
         $addFields: {
           stoppedAtResolved: {
@@ -1114,26 +1189,20 @@ async function buildDailyTotals(db: Db, userId: ObjectId, start: Date, end: Date
         $match: {
           userId,
           status: 'stopped',
-          stoppedAtResolved: { $gte: start, $lt: end },
+          stoppedAtResolved: { $gt: start },
           durationSeconds: { $gt: 0 },
         },
       },
       {
-        $group: {
-          _id: {
-            $dateToString: {
-              date: '$stoppedAtResolved',
-              format: '%Y-%m-%d',
-              timezone: 'Asia/Seoul',
-            },
-          },
-          totalSeconds: { $sum: '$durationSeconds' },
+        $project: {
+          stoppedAtResolved: 1,
+          durationSeconds: 1,
         },
       },
     ])
     .toArray();
 
-  return new Map(totals.map((item) => [item._id, item.totalSeconds]));
+  return distributeSessionsByDay(sessions, start, end);
 }
 
 async function buildHourlyTotals(db: Db, userId: ObjectId, start: Date, end: Date) {
@@ -1354,9 +1423,9 @@ function getKstDayHourKey(date: Date) {
 }
 
 async function buildStreak(db: Db, userId: ObjectId) {
-  const activeDays = await db
+  const sessions = await db
     .collection<OptionalId<StudySession>>('study_sessions')
-    .aggregate<{ _id: string; totalSeconds: number }>([
+    .aggregate<{ stoppedAtResolved: Date | null; durationSeconds: number }>([
       {
         $addFields: {
           stoppedAtResolved: {
@@ -1378,21 +1447,18 @@ async function buildStreak(db: Db, userId: ObjectId) {
         },
       },
       {
-        $group: {
-          _id: {
-            $dateToString: {
-              date: '$stoppedAtResolved',
-              format: '%Y-%m-%d',
-              timezone: 'Asia/Seoul',
-            },
-          },
-          totalSeconds: { $sum: '$durationSeconds' },
+        $project: {
+          stoppedAtResolved: 1,
+          durationSeconds: 1,
         },
       },
-      { $match: { totalSeconds: { $gte: STREAK_MIN_DAILY_SECONDS } } },
-      { $sort: { _id: 1 } },
     ])
     .toArray();
+  const dailyTotals = distributeSessionsByDay(sessions, new Date(0), new Date(8640000000000000));
+  const activeDays = Array.from(dailyTotals.entries())
+    .filter(([, totalSeconds]) => totalSeconds >= STREAK_MIN_DAILY_SECONDS)
+    .map(([key, totalSeconds]) => ({ _id: key, totalSeconds }))
+    .sort((a, b) => a._id.localeCompare(b._id));
 
   const activeDateSet = new Set(activeDays.map((item) => item._id));
   let current = 0;
@@ -1435,9 +1501,9 @@ function addKstDateDays(key: string, days: number) {
 }
 
 async function sumStoppedSeconds(db: Db, userId: ObjectId, range: { start: Date; end: Date }) {
-  const totals = await db
+  const sessions = await db
     .collection<OptionalId<StudySession>>('study_sessions')
-    .aggregate<{ totalSeconds: number }>([
+    .aggregate<{ stoppedAtResolved: Date | null; durationSeconds: number }>([
       {
         $addFields: {
           stoppedAtResolved: {
@@ -1454,15 +1520,95 @@ async function sumStoppedSeconds(db: Db, userId: ObjectId, range: { start: Date;
         $match: {
           userId,
           status: 'stopped',
-          stoppedAtResolved: { $gte: range.start, $lt: range.end },
+          stoppedAtResolved: { $gt: range.start },
           durationSeconds: { $gt: 0 },
         },
       },
-      { $group: { _id: '$userId', totalSeconds: { $sum: '$durationSeconds' } } },
+      {
+        $project: {
+          stoppedAtResolved: 1,
+          durationSeconds: 1,
+        },
+      },
     ])
     .toArray();
 
-  return totals[0]?.totalSeconds ?? 0;
+  return sessions.reduce((sum, session) => sum + getSessionOverlapSeconds(session, range.start, range.end), 0);
+}
+
+function distributeSessionsByDay(
+  sessions: { stoppedAtResolved: Date | null; durationSeconds: number }[],
+  rangeStart: Date,
+  rangeEnd: Date
+) {
+  const totals = new Map<string, number>();
+  const rangeStartMs = rangeStart.getTime();
+  const rangeEndMs = rangeEnd.getTime();
+
+  for (const session of sessions) {
+    const bounds = getClippedSessionBounds(session, rangeStartMs, rangeEndMs);
+    if (!bounds) {
+      continue;
+    }
+
+    let cursorMs = bounds.startMs;
+    while (cursorMs < bounds.endMs) {
+      const nextDayMs = getNextKstDayBoundaryMs(cursorMs);
+      const segmentEndMs = Math.min(nextDayMs, bounds.endMs);
+      const segmentSeconds = Math.max(0, Math.round((segmentEndMs - cursorMs) / 1000));
+
+      if (segmentSeconds > 0) {
+        const key = getKstDateKey(new Date(cursorMs));
+        totals.set(key, (totals.get(key) ?? 0) + segmentSeconds);
+      }
+
+      cursorMs = segmentEndMs;
+    }
+  }
+
+  return totals;
+}
+
+function getSessionOverlapSeconds(
+  session: { stoppedAtResolved: Date | null; durationSeconds: number },
+  rangeStart: Date,
+  rangeEnd: Date
+) {
+  const bounds = getClippedSessionBounds(session, rangeStart.getTime(), rangeEnd.getTime());
+  return bounds ? Math.max(0, Math.round((bounds.endMs - bounds.startMs) / 1000)) : 0;
+}
+
+function getClippedSessionBounds(
+  session: { stoppedAtResolved: Date | null; durationSeconds: number },
+  rangeStartMs: number,
+  rangeEndMs: number
+) {
+  if (!session.stoppedAtResolved || session.durationSeconds <= 0) {
+    return null;
+  }
+
+  const stoppedAtMs = session.stoppedAtResolved.getTime();
+  if (!Number.isFinite(stoppedAtMs)) {
+    return null;
+  }
+
+  const durationMs = Math.max(0, Math.floor(session.durationSeconds) * 1000);
+  const sessionStartMs = stoppedAtMs - durationMs;
+  const startMs = Math.max(sessionStartMs, rangeStartMs);
+  const endMs = Math.min(stoppedAtMs, rangeEndMs);
+
+  if (startMs >= endMs) {
+    return null;
+  }
+
+  return { startMs, endMs };
+}
+
+function getNextKstDayBoundaryMs(timestampMs: number) {
+  const kstDate = new Date(timestampMs + KST_OFFSET_MS);
+  kstDate.setUTCHours(0, 0, 0, 0);
+  kstDate.setUTCDate(kstDate.getUTCDate() + 1);
+  return kstDate.getTime() - KST_OFFSET_MS;
 }
 
 function makeSubjectId(label: string, now: Date) {
@@ -1473,6 +1619,21 @@ function makeSubjectId(label: string, now: Date) {
     .replace(/[^\p{Letter}\p{Number}-]/gu, '')
     .slice(0, 40);
   return normalized || `subject-${now.getTime()}`;
+}
+
+function normalizeSubjectLabel(label: string) {
+  return label.trim().replace(/\s+/g, ' ');
+}
+
+function findSubjectLabelConflict(subjects: Pick<Subject, 'subjectId' | 'label'>[], label: string, excludeSubjectId?: string) {
+  const normalizedLabel = normalizeSubjectLabel(label);
+  const subjectId = makeSubjectId(normalizedLabel, new Date(0));
+
+  return subjects.find(
+    (subject) =>
+      subject.subjectId !== excludeSubjectId &&
+      (normalizeSubjectLabel(subject.label) === normalizedLabel || subject.subjectId === subjectId)
+  );
 }
 
 function makeGoalId(title: string, now: Date) {

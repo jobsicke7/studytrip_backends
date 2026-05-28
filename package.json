@@ -8,9 +8,11 @@
     "dev:once": "bun src/index.ts",
     "dev:bun-watch": "bun --watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "bun dist/index.js"
+    "upload:white-noise": "node scripts/upload-white-noise.mjs",
+    "start": "bun src/index.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1053.0",
     "@elysiajs/cors": "^1.1.0",
     "@elysiajs/jwt": "^1.1.0",
     "dotenv": "^16.4.5",

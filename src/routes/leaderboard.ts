@@ -86,7 +86,7 @@ async function buildLeaderboard(
   range: { start: Date; end: Date }
 ) {
   const sessions = db.collection<OptionalId<StudySession>>('study_sessions');
-  const pipeline = [
+  const results = await sessions.aggregate<{ userId: ObjectId; stoppedAtResolved: Date | null; durationSeconds: number }>([
     {
       $addFields: {
         stoppedAtResolved: {
@@ -102,45 +102,53 @@ async function buildLeaderboard(
     {
       $match: {
         status: 'stopped',
-        stoppedAtResolved: { $gte: range.start, $lt: range.end },
+        stoppedAtResolved: { $gt: range.start },
         durationSeconds: { $gt: 0 },
       },
     },
     {
-      $group: {
-        _id: '$userId',
-        totalSeconds: { $sum: '$durationSeconds' },
-      },
-    },
-    { $sort: { totalSeconds: -1 } },
-    { $limit: 100 },
-    {
-      $lookup: {
-        from: 'users',
-        localField: '_id',
-        foreignField: '_id',
-        as: 'user',
-      },
-    },
-    { $unwind: '$user' },
-    {
       $project: {
-        userId: '$_id',
-        totalSeconds: 1,
-        name: '$user.name',
-        avatarUrl: '$user.avatarUrl',
+        userId: 1,
+        stoppedAtResolved: 1,
+        durationSeconds: 1,
       },
     },
-  ];
+  ]).toArray();
 
-  const results = await sessions.aggregate(pipeline).toArray();
-  const items = results.map((row, index) => ({
-    rank: index + 1,
-    userId: row.userId instanceof ObjectId ? row.userId.toString() : String(row.userId),
-    name: row.name as User['name'],
-    avatarUrl: row.avatarUrl as User['avatarUrl'],
-    totalSeconds: row.totalSeconds as number,
-  }));
+  const totals = new Map<string, { userId: ObjectId; totalSeconds: number }>();
+  for (const session of results) {
+    const totalSeconds = getSessionOverlapSeconds(session, range);
+    if (totalSeconds <= 0) {
+      continue;
+    }
+
+    const key = session.userId.toString();
+    const current = totals.get(key);
+    totals.set(key, {
+      userId: session.userId,
+      totalSeconds: (current?.totalSeconds ?? 0) + totalSeconds,
+    });
+  }
+
+  const rankedTotals = Array.from(totals.values())
+    .sort((a, b) => b.totalSeconds - a.totalSeconds)
+    .slice(0, 100);
+  const users = await db
+    .collection<OptionalId<User>>('users')
+    .find({ _id: { $in: rankedTotals.map((item) => item.userId) } })
+    .toArray();
+  const userMap = new Map(users.map((user) => [user._id.toString(), user]));
+
+  const items = rankedTotals.map((row, index) => {
+    const user = userMap.get(row.userId.toString());
+    return {
+      rank: index + 1,
+      userId: row.userId.toString(),
+      name: user?.name ?? 'Unknown',
+      avatarUrl: user?.avatarUrl,
+      totalSeconds: row.totalSeconds,
+    };
+  });
 
   const myIndex = items.findIndex((item) => item.userId === authUserId);
 
@@ -149,4 +157,23 @@ async function buildLeaderboard(
     items,
     me: myIndex >= 0 ? items[myIndex] : null,
   };
+}
+
+function getSessionOverlapSeconds(
+  session: { stoppedAtResolved: Date | null; durationSeconds: number },
+  range: { start: Date; end: Date }
+) {
+  if (!session.stoppedAtResolved || session.durationSeconds <= 0) {
+    return 0;
+  }
+
+  const stoppedAtMs = session.stoppedAtResolved.getTime();
+  if (!Number.isFinite(stoppedAtMs)) {
+    return 0;
+  }
+
+  const sessionStartMs = stoppedAtMs - Math.max(0, Math.floor(session.durationSeconds) * 1000);
+  const startMs = Math.max(sessionStartMs, range.start.getTime());
+  const endMs = Math.min(stoppedAtMs, range.end.getTime());
+  return startMs < endMs ? Math.max(0, Math.round((endMs - startMs) / 1000)) : 0;
 }

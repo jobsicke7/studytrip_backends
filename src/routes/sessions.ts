@@ -580,7 +580,7 @@ async function buildSummary(
   const sessions = db.collection<OptionalId<StudySession>>('study_sessions');
   const userId = new ObjectId(authUserId);
   const totals = await sessions
-    .aggregate([
+    .aggregate<{ stoppedAtResolved: Date | null; durationSeconds: number }>([
       {
         $addFields: {
           stoppedAtResolved: {
@@ -597,26 +597,44 @@ async function buildSummary(
         $match: {
           userId,
           status: 'stopped',
-          stoppedAtResolved: { $gte: range.start, $lt: range.end },
+          stoppedAtResolved: { $gt: range.start },
           durationSeconds: { $gt: 0 },
         },
       },
       {
-        $group: {
-          _id: '$userId',
-          totalSeconds: { $sum: '$durationSeconds' },
-          sessions: { $sum: 1 },
+        $project: {
+          stoppedAtResolved: 1,
+          durationSeconds: 1,
         },
       },
     ])
     .toArray();
 
-  const totalSeconds = totals[0]?.totalSeconds ?? 0;
-  const sessionCount = totals[0]?.sessions ?? 0;
+  const totalSeconds = totals.reduce((sum, session) => sum + getSessionOverlapSeconds(session, range), 0);
+  const sessionCount = totals.filter((session) => getSessionOverlapSeconds(session, range) > 0).length;
 
   return {
     range,
     totalSeconds,
     sessionCount,
   };
+}
+
+function getSessionOverlapSeconds(
+  session: { stoppedAtResolved: Date | null; durationSeconds: number },
+  range: { start: Date; end: Date }
+) {
+  if (!session.stoppedAtResolved || session.durationSeconds <= 0) {
+    return 0;
+  }
+
+  const stoppedAtMs = session.stoppedAtResolved.getTime();
+  if (!Number.isFinite(stoppedAtMs)) {
+    return 0;
+  }
+
+  const sessionStartMs = stoppedAtMs - Math.max(0, Math.floor(session.durationSeconds) * 1000);
+  const startMs = Math.max(sessionStartMs, range.start.getTime());
+  const endMs = Math.min(stoppedAtMs, range.end.getTime());
+  return startMs < endMs ? Math.max(0, Math.round((endMs - startMs) / 1000)) : 0;
 }

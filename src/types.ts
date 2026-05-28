@@ -66,6 +66,9 @@ export type TimerPreferences = {
   pomodoroAlarmOn?: boolean;
   pomodoroFocusWhiteNoise?: string;
   pomodoroBreakWhiteNoise?: string;
+  pomodoroFocusWhiteNoiseVolume?: number;
+  pomodoroBreakWhiteNoiseVolume?: number;
+  whiteNoiseVolume?: number;
   createdAt: Date;
   updatedAt: Date;
 };
