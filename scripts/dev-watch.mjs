@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { extname, join, resolve } from 'node:path';
 
-const rootDir = resolve(new URL('..', import.meta.url).pathname);
+const rootDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const srcDir = join(rootDir, 'src');
 const pollMs = 700;
 const watchExtensions = new Set(['.ts', '.js', '.json']);

@@ -3,6 +3,7 @@ import { Db, ObjectId, OptionalId } from 'mongodb';
 
 import type { Env } from '../config.js';
 import type { Goal, LoginSession, StudySession, Subject, TimerPreferences, User } from '../types.js';
+import { notifyWeeklyLeaderboardChanged } from './leaderboard.js';
 import {
   buildLoginSessionMetadata,
   isLoginSessionActive,
@@ -146,6 +147,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         return { error: 'User not found.' };
       }
 
+      notifyWeeklyLeaderboardChanged(db);
       return {
         user: {
           id: user._id.toString(),
@@ -266,6 +268,26 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
       }),
     }
   )
+  .delete('/account/sessions/current', async ({ db, authUserId, authDeviceId, set }) => {
+    if (!authDeviceId || authDeviceId === 'default') {
+      set.status = 400;
+      return { error: 'Current device id is required.' };
+    }
+
+    const now = new Date();
+    await db.collection<OptionalId<LoginSession>>('login_sessions').updateOne(
+      { userId: new ObjectId(authUserId), deviceId: authDeviceId },
+      {
+        $set: {
+          isActive: false,
+          revokedAt: now,
+          updatedAt: now,
+        },
+      }
+    );
+
+    return { ok: true };
+  })
   .delete('/account/sessions/others', async ({ db, authUserId, query, headers, set }) => {
     const userId = new ObjectId(authUserId);
     const currentDeviceId = normalizeDeviceId(String(query.actorDeviceId ?? query.actor_device_id ?? headers['x-device-id'] ?? ''));

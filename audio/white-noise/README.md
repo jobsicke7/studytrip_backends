@@ -6,12 +6,11 @@ Expected file names for the default app config:
 - waves.mp3
 - forest.mp3
 - cafe.mp3
-- white.mp3
-- brown.mp3
+- city.mp3
+- airplane.mp3
 
 Upload with:
 
 ```sh
 npm run upload:white-noise
 ```
-

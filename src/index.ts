@@ -35,9 +35,13 @@ const app = new Elysia()
       const y = dt.getFullYear();
       const m = String(dt.getMonth() + 1).padStart(2, '0');
       const d = String(dt.getDate()).padStart(2, '0');
-      const date = `${y}.${m}.${d}`; // yyyy.mm.dd
+      const hh = String(dt.getHours()).padStart(2, '0');
+      const mm = String(dt.getMinutes()).padStart(2, '0');
+      const ss = String(dt.getSeconds()).padStart(2, '0');
+      const date = `${y}.${m}.${d} ${hh}:${mm}:${ss}`; // yyyy.mm.dd hh:mm:ss
       const method = context.request?.method ?? 'UNKNOWN';
       const path = context.path ?? '/';
+      const status = context.set?.status ?? 200;
 
       // ANSI colors: magenta(date), cyan(method), green(path), bright yellow(duration)
       const RESET = '\x1b[0m';
@@ -46,7 +50,7 @@ const app = new Elysia()
       const GREEN = '\x1b[32m';
       const BRIGHT_YELLOW = '\x1b[93m';
 
-      console.log(`${MAGENTA}${date}${RESET} ${CYAN}${method}${RESET} ${GREEN}${path}${RESET} - ${BRIGHT_YELLOW}${duration}ms${RESET}`);
+      console.log(`${MAGENTA}${date}${RESET} ${CYAN}${method}${RESET} ${GREEN}${path}${RESET} ${status} - ${BRIGHT_YELLOW}${duration}ms${RESET}`);
     });
 
     return app;
