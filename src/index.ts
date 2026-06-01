@@ -12,6 +12,7 @@ import { authRoutes } from './routes/auth.js';
 import { appConfigRoutes } from './routes/app-config.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { leaderboardRoutes } from './routes/leaderboard.js';
+import { quoteRoutes } from './routes/quotes.js';
 import { sessionRoutes } from './routes/sessions.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -61,6 +62,7 @@ const app = new Elysia()
   .use(jwt({ name: 'jwt', secret: env.JWT_SECRET }))
   .get('/health', () => ({ status: 'ok' }))
   .use(appConfigRoutes)
+  .use(quoteRoutes)
   .use(authRoutes)
   .use(dashboardRoutes)
   .use(sessionRoutes)

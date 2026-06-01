@@ -66,9 +66,13 @@ const defaultTimerPreferences = {
   pomodoroAlarmOn: true,
   pomodoroFocusWhiteNoise: 'none',
   pomodoroBreakWhiteNoise: 'none',
-  pomodoroFocusWhiteNoiseVolume: 0.42,
-  pomodoroBreakWhiteNoiseVolume: 0.42,
-  whiteNoiseVolume: 0.42,
+  pomodoroFocusWhiteNoiseVolume: 1,
+  pomodoroBreakWhiteNoiseVolume: 1,
+  whiteNoiseVolume: 1,
+  clockFormat: '24h' as const,
+  clockShowSeconds: true,
+  timerFontStyle: 'jalnan',
+  themeAccent: 'blue',
 };
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
@@ -288,6 +292,31 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
 
     return { ok: true };
   })
+  .delete('/account', async ({ db, authUserId }) => {
+    const userId = new ObjectId(authUserId);
+    const [sessions] = await Promise.all([
+      db
+        .collection<OptionalId<LoginSession>>('login_sessions')
+        .find({ userId, isActive: { $ne: false } }, { projection: { deviceId: 1 } })
+        .toArray(),
+      db.collection<OptionalId<StudySession>>('study_sessions').deleteMany({ userId }),
+      db.collection<OptionalId<Subject>>('subjects').deleteMany({ userId }),
+      db.collection<OptionalId<Goal>>('goals').deleteMany({ userId }),
+      db.collection<OptionalId<TimerPreferences>>('timer_preferences').deleteMany({ userId }),
+    ]);
+
+    await Promise.all([
+      db.collection<OptionalId<LoginSession>>('login_sessions').deleteMany({ userId }),
+      db.collection<OptionalId<User>>('users').deleteOne({ _id: userId }),
+    ]);
+
+    for (const session of sessions) {
+      notifySessionRevoked(authUserId, session.deviceId);
+    }
+
+    notifyWeeklyLeaderboardChanged(db);
+    return { ok: true };
+  })
   .delete('/account/sessions/others', async ({ db, authUserId, query, headers, set }) => {
     const userId = new ObjectId(authUserId);
     const currentDeviceId = normalizeDeviceId(String(query.actorDeviceId ?? query.actor_device_id ?? headers['x-device-id'] ?? ''));
@@ -373,6 +402,10 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         pomodoroFocusWhiteNoiseVolume: preferences.pomodoroFocusWhiteNoiseVolume,
         pomodoroBreakWhiteNoiseVolume: preferences.pomodoroBreakWhiteNoiseVolume,
         whiteNoiseVolume: preferences.whiteNoiseVolume,
+        clockFormat: preferences.clockFormat,
+        clockShowSeconds: preferences.clockShowSeconds,
+        timerFontStyle: preferences.timerFontStyle,
+        themeAccent: preferences.themeAccent,
       },
     };
   })
@@ -398,6 +431,10 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         pomodoroFocusWhiteNoiseVolume: preferences.pomodoroFocusWhiteNoiseVolume,
         pomodoroBreakWhiteNoiseVolume: preferences.pomodoroBreakWhiteNoiseVolume,
         whiteNoiseVolume: preferences.whiteNoiseVolume,
+        clockFormat: preferences.clockFormat,
+        clockShowSeconds: preferences.clockShowSeconds,
+        timerFontStyle: preferences.timerFontStyle,
+        themeAccent: preferences.themeAccent,
       },
     };
   })
@@ -431,6 +468,10 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         pomodoroFocusWhiteNoiseVolume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
         pomodoroBreakWhiteNoiseVolume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
         whiteNoiseVolume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
+        clockFormat: t.Optional(t.Union([t.Literal('12h'), t.Literal('24h')])),
+        clockShowSeconds: t.Optional(t.Boolean()),
+        timerFontStyle: t.Optional(t.String()),
+        themeAccent: t.Optional(t.String()),
       }),
     }
   )
@@ -1056,9 +1097,13 @@ async function ensureTimerPreferences(db: Db, userId: ObjectId) {
   const preferences = db.collection<OptionalId<TimerPreferences>>('timer_preferences');
   const existing = await preferences.findOne({ userId });
   if (existing) {
+    const normalized = normalizeTimerPreferences(existing);
+    if (needsTimerPreferencesUpdate(existing, normalized)) {
+      await preferences.updateOne({ _id: existing._id }, { $set: normalized });
+    }
     return {
       ...existing,
-      ...normalizeTimerPreferences(existing),
+      ...normalized,
     };
   }
 
@@ -1071,6 +1116,28 @@ async function ensureTimerPreferences(db: Db, userId: ObjectId) {
   };
   const result = await preferences.insertOne(document);
   return { _id: result.insertedId, ...document };
+}
+
+function needsTimerPreferencesUpdate(
+  existing: TimerPreferences,
+  normalized: ReturnType<typeof normalizeTimerPreferences>
+) {
+  return (
+    existing.pomodoroFocusMinutes !== normalized.pomodoroFocusMinutes ||
+    existing.pomodoroBreakMinutes !== normalized.pomodoroBreakMinutes ||
+    existing.pomodoroLongBreakMinutes !== normalized.pomodoroLongBreakMinutes ||
+    existing.pomodoroLongBreakInterval !== normalized.pomodoroLongBreakInterval ||
+    existing.pomodoroAlarmOn !== normalized.pomodoroAlarmOn ||
+    existing.pomodoroFocusWhiteNoise !== normalized.pomodoroFocusWhiteNoise ||
+    existing.pomodoroBreakWhiteNoise !== normalized.pomodoroBreakWhiteNoise ||
+    existing.pomodoroFocusWhiteNoiseVolume !== normalized.pomodoroFocusWhiteNoiseVolume ||
+    existing.pomodoroBreakWhiteNoiseVolume !== normalized.pomodoroBreakWhiteNoiseVolume ||
+    existing.whiteNoiseVolume !== normalized.whiteNoiseVolume ||
+    existing.clockFormat !== normalized.clockFormat ||
+    existing.clockShowSeconds !== normalized.clockShowSeconds ||
+    existing.timerFontStyle !== normalized.timerFontStyle ||
+    existing.themeAccent !== normalized.themeAccent
+  );
 }
 
 function normalizeTimerPreferences(
@@ -1087,9 +1154,30 @@ function normalizeTimerPreferences(
       | 'pomodoroFocusWhiteNoiseVolume'
       | 'pomodoroBreakWhiteNoiseVolume'
       | 'whiteNoiseVolume'
+      | 'clockFormat'
+      | 'clockShowSeconds'
+      | 'timerFontStyle'
+      | 'themeAccent'
     >
   >
 ) {
+  const focusDerivedVolume = deriveWhiteNoiseVolume(preferences.pomodoroFocusWhiteNoise);
+  const breakDerivedVolume = deriveWhiteNoiseVolume(preferences.pomodoroBreakWhiteNoise);
+  const derivedAnyVolume = focusDerivedVolume ?? breakDerivedVolume;
+  const normalizedWhiteNoiseVolume =
+    derivedAnyVolume ?? clampRatio(preferences.whiteNoiseVolume, defaultTimerPreferences.whiteNoiseVolume);
+  const normalizedFocusVolume =
+    focusDerivedVolume ??
+    clampRatio(
+      preferences.pomodoroFocusWhiteNoiseVolume ?? normalizedWhiteNoiseVolume,
+      defaultTimerPreferences.pomodoroFocusWhiteNoiseVolume
+    );
+  const normalizedBreakVolume =
+    breakDerivedVolume ??
+    clampRatio(
+      preferences.pomodoroBreakWhiteNoiseVolume ?? normalizedWhiteNoiseVolume,
+      defaultTimerPreferences.pomodoroBreakWhiteNoiseVolume
+    );
   return {
     pomodoroFocusMinutes: clampPreferenceMinutes(
       preferences.pomodoroFocusMinutes,
@@ -1113,20 +1201,61 @@ function normalizeTimerPreferences(
         : defaultTimerPreferences.pomodoroAlarmOn,
     pomodoroFocusWhiteNoise: normalizeWhiteNoise(preferences.pomodoroFocusWhiteNoise),
     pomodoroBreakWhiteNoise: normalizeWhiteNoise(preferences.pomodoroBreakWhiteNoise),
-    pomodoroFocusWhiteNoiseVolume: clampRatio(
-      preferences.pomodoroFocusWhiteNoiseVolume ?? preferences.whiteNoiseVolume,
-      defaultTimerPreferences.pomodoroFocusWhiteNoiseVolume
-    ),
-    pomodoroBreakWhiteNoiseVolume: clampRatio(
-      preferences.pomodoroBreakWhiteNoiseVolume ?? preferences.whiteNoiseVolume,
-      defaultTimerPreferences.pomodoroBreakWhiteNoiseVolume
-    ),
-    whiteNoiseVolume: clampRatio(preferences.whiteNoiseVolume, defaultTimerPreferences.whiteNoiseVolume),
+    pomodoroFocusWhiteNoiseVolume: normalizedFocusVolume,
+    pomodoroBreakWhiteNoiseVolume: normalizedBreakVolume,
+    whiteNoiseVolume: normalizedWhiteNoiseVolume,
+    clockFormat: preferences.clockFormat === '12h' ? '12h' as const : '24h' as const,
+    clockShowSeconds:
+      typeof preferences.clockShowSeconds === 'boolean' ? preferences.clockShowSeconds : defaultTimerPreferences.clockShowSeconds,
+    timerFontStyle:
+      typeof preferences.timerFontStyle === 'string' && preferences.timerFontStyle.trim()
+        ? preferences.timerFontStyle.trim().slice(0, 40)
+        : defaultTimerPreferences.timerFontStyle,
+    themeAccent: normalizeThemeAccent(preferences.themeAccent),
   };
+}
+
+function normalizeThemeAccent(value: unknown) {
+  const id = typeof value === 'string' ? value.trim() : '';
+  return ['blue', 'beige', 'red', 'purple', 'pink', 'green', 'cyan'].includes(id) ? id : defaultTimerPreferences.themeAccent;
 }
 
 function normalizeWhiteNoise(value: unknown) {
   return typeof value === 'string' && value.trim() ? value : 'none';
+}
+
+function deriveWhiteNoiseVolume(value: unknown) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const entries = value.split(',');
+  for (const entry of entries) {
+    const parts = entry.trim().split('@');
+    const id = parts[0]?.trim();
+    if (!id || id === 'none') {
+      continue;
+    }
+    const rawVolume = parts.length > 1 ? parts[parts.length - 1] : undefined;
+    if (rawVolume === undefined) {
+      continue;
+    }
+    const normalized = normalizeWhiteNoiseVolumeValue(Number(rawVolume));
+    if (normalized !== null) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+function normalizeWhiteNoiseVolumeValue(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  const normalized = numeric > 1 ? numeric / 100 : numeric;
+  return Math.max(0, Math.min(1, normalized));
 }
 
 function clampPreferenceMinutes(value: unknown, fallback: number) {
@@ -1142,7 +1271,8 @@ function clampRatio(value: unknown, fallback: number) {
   if (!Number.isFinite(numeric)) {
     return fallback;
   }
-  return Math.max(0, Math.min(1, numeric));
+  const normalized = numeric > 1 ? numeric / 100 : numeric;
+  return Math.max(0, Math.min(1, normalized));
 }
 
 async function buildSubjectTotals(db: Db, userId: ObjectId, range: { start: Date; end: Date }) {

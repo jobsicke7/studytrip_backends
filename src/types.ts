@@ -5,7 +5,8 @@ export type User = {
   email: string;
   name: string;
   avatarUrl?: string;
-  provider: 'google' | 'dev';
+  provider: 'google' | 'kakao' | 'email' | 'dev';
+  passwordHash?: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -69,6 +70,10 @@ export type TimerPreferences = {
   pomodoroFocusWhiteNoiseVolume?: number;
   pomodoroBreakWhiteNoiseVolume?: number;
   whiteNoiseVolume?: number;
+  clockFormat?: '12h' | '24h';
+  clockShowSeconds?: boolean;
+  timerFontStyle?: string;
+  themeAccent?: string;
   createdAt: Date;
   updatedAt: Date;
 };

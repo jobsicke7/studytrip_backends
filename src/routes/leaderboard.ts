@@ -29,6 +29,12 @@ type AppSingleton = {
   };
 };
 
+const developerEmails = new Set(['dev@timer.local', 'doh292929@gmail.com']);
+
+function isDeveloperUser(user: User) {
+  return user.provider === 'dev' || developerEmails.has(user.email);
+}
+
 function requireAuth() {
   return new Elysia<'', AppSingleton>().resolve({ as: 'global' }, async ({ jwt, headers, query, db, status }) => {
     const authHeader = headers.authorization ?? '';
@@ -199,7 +205,7 @@ async function buildLeaderboard(
     .collection<OptionalId<User>>('users')
     .find({ _id: { $in: userIds } })
     .toArray();
-  const userMap = new Map(users.map((user) => [user._id.toString(), user]));
+  const userMap = new Map(users.filter((user) => !isDeveloperUser(user)).map((user) => [user._id.toString(), user]));
   const validRankedTotals = allRankedTotals.filter((item) => userMap.has(item.userId.toString()));
   const rankedTotals = validRankedTotals.slice(0, 100);
   const myRankedRow = validRankedTotals.find((item) => item.userId.toString() === authUserId);

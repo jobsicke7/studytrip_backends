@@ -19,7 +19,8 @@
     "dotenv": "^16.4.5",
     "elysia": "^1.1.0",
     "google-auth-library": "^9.11.0",
-    "mongodb": "^6.8.0"
+    "mongodb": "^6.8.0",
+    "resend": "^6.12.4"
   },
   "devDependencies": {
     "@types/node": "^22.5.4",
