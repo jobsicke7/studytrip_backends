@@ -342,6 +342,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
       const now = new Date();
       await users.insertOne({
         email,
+        providerAccountId: email,
         name: email.split('@')[0],
         provider: 'email',
         passwordHash: await hashPassword(body.password),
@@ -487,6 +488,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
       if (!user) {
         const result = await users.insertOne({
           ...devUserProfile,
+          providerAccountId: 'dev',
           provider: 'dev',
           createdAt: now,
           updatedAt: now,
@@ -623,6 +625,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
 
       const kakaoId = String(kakaoUser.id);
       const email = kakaoUser.kakao_account?.email ?? `kakao-${kakaoId}@kakao.local`;
+      const providerAccountId = `kakao:${kakaoId}`;
       const name =
         kakaoUser.kakao_account?.profile?.nickname ??
         kakaoUser.properties?.nickname ??
@@ -635,12 +638,25 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
 
       const now = new Date();
       const users = db.collection<OptionalId<User>>('users');
-      const existing = await users.findOne({ email });
+      const existing = await users.findOne({
+        $or: [
+          { provider: 'kakao', providerAccountId },
+          { provider: 'kakao', email },
+        ],
+      });
+      if (!existing && kakaoUser.kakao_account?.email) {
+        const conflictingAccount = await users.findOne({ email });
+        if (conflictingAccount) {
+          set.status = 409;
+          return { error: getDuplicateAccountMessage(conflictingAccount.provider) };
+        }
+      }
 
       let user = existing;
       if (!user) {
         const result = await users.insertOne({
           email,
+          providerAccountId,
           name,
           avatarUrl,
           provider: 'kakao',
@@ -661,6 +677,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           { _id: new ObjectId(user._id) },
           {
             $set: {
+              providerAccountId,
               name,
               avatarUrl: avatarUrl ?? user.avatarUrl,
               updatedAt: now,
@@ -758,9 +775,15 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
       }
 
       const email = normalizeEmail(payload.email);
+      const providerAccountId = `google:${payload.sub}`;
       const now = new Date();
       const users = db.collection<OptionalId<User>>('users');
-      const existing = await users.findOne({ email });
+      const existing = await users.findOne({
+        $or: [
+          { provider: 'google', providerAccountId },
+          { email },
+        ],
+      });
 
       if (existing && existing.provider !== 'google') {
         set.status = 409;
@@ -771,6 +794,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
       if (!user) {
         const result = await users.insertOne({
           email,
+          providerAccountId,
           name: payload.name ?? email.split('@')[0],
           avatarUrl: payload.picture,
           provider: 'google',
@@ -791,6 +815,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           { _id: new ObjectId(user._id) },
           {
             $set: {
+              providerAccountId,
               name: payload.name ?? user.name,
               avatarUrl: payload.picture ?? user.avatarUrl,
               updatedAt: now,

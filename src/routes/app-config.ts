@@ -109,7 +109,14 @@ function buildAppConfig(env: Env, apiBaseUrl: string) {
 
 export const appConfigRoutes = new Elysia<'', AppSingleton>()
   .get('/app/config', ({ env, query, request }) => {
-    const config = buildAppConfig(env, new URL(request.url).origin);
+    // Determine external API origin. Prefer explicit env override, then
+    // X-Forwarded-* headers (set by reverse proxies), then request.url origin.
+    const forwardedProto = request.headers.get('x-forwarded-proto');
+    const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
+    const apiOrigin =
+      (env.EXTERNAL_API_ORIGIN && env.EXTERNAL_API_ORIGIN.replace(/\/$/, '')) ||
+      (forwardedProto && forwardedHost ? `${forwardedProto}://${forwardedHost}` : new URL(request.url).origin);
+    const config = buildAppConfig(env, apiOrigin);
     if (query.rev === config.revision) {
       return {
         revision: config.revision,

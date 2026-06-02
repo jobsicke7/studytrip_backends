@@ -294,6 +294,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
   })
   .delete('/account', async ({ db, authUserId }) => {
     const userId = new ObjectId(authUserId);
+    const user = await db.collection<OptionalId<User>>('users').findOne({ _id: userId }, { projection: { email: 1 } });
     const [sessions] = await Promise.all([
       db
         .collection<OptionalId<LoginSession>>('login_sessions')
@@ -308,6 +309,8 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
     await Promise.all([
       db.collection<OptionalId<LoginSession>>('login_sessions').deleteMany({ userId }),
       db.collection<OptionalId<User>>('users').deleteOne({ _id: userId }),
+      user?.email ? db.collection('emailVerificationCodes').deleteMany({ email: user.email }) : Promise.resolve(null),
+      user?.email ? db.collection('emailVerificationTokens').deleteMany({ email: user.email }) : Promise.resolve(null),
     ]);
 
     for (const session of sessions) {

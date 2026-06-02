@@ -15,6 +15,7 @@ export type Env = {
   WHITE_NOISE_KEY_PREFIX: string;
   BACKGROUND_KEY_PREFIX: string;
   FONT_KEY_PREFIX: string;
+  EXTERNAL_API_ORIGIN: string;
   SHOW_TEST_LOGIN_BUTTON: boolean;
   RESEND_API_KEY: string;
   RESEND_FROM_EMAIL: string;
@@ -43,6 +44,7 @@ export function getEnv(): Env {
   const WHITE_NOISE_KEY_PREFIX = process.env.WHITE_NOISE_KEY_PREFIX ?? 'white-noise';
   const BACKGROUND_KEY_PREFIX = process.env.BACKGROUND_KEY_PREFIX ?? 'background';
   const FONT_KEY_PREFIX = process.env.FONT_KEY_PREFIX ?? 'fonts';
+  const EXTERNAL_API_ORIGIN = process.env.EXTERNAL_API_ORIGIN ?? '';
   const SHOW_TEST_LOGIN_BUTTON = (process.env.SHOW_TEST_LOGIN_BUTTON ?? 'true').toLowerCase() === 'true';
   const RESEND_API_KEY = process.env.RESEND_API_KEY ?? '';
   const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? '스터디트립 <onboarding@resend.dev>';
@@ -70,6 +72,7 @@ export function getEnv(): Env {
     SCHOOL_LNG,
     SCHOOL_RADIUS_M,
     R2_PUBLIC_BASE_URL,
+    EXTERNAL_API_ORIGIN,
     WHITE_NOISE_KEY_PREFIX,
     BACKGROUND_KEY_PREFIX,
     FONT_KEY_PREFIX,

@@ -3,6 +3,7 @@ import type { ObjectId } from 'mongodb';
 export type User = {
   _id: ObjectId;
   email: string;
+  providerAccountId?: string;
   name: string;
   avatarUrl?: string;
   provider: 'google' | 'kakao' | 'email' | 'dev';
