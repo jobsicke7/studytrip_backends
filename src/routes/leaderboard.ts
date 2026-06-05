@@ -29,7 +29,7 @@ type AppSingleton = {
   };
 };
 
-const developerEmails = new Set(['dev@timer.local', 'doh292929@gmail.com']);
+const developerEmails = new Set(['dev@timer.local']);
 
 function isDeveloperUser(user: User) {
   return user.provider === 'dev' || developerEmails.has(user.email);

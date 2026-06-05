@@ -99,6 +99,10 @@ function getDuplicateAccountMessage(provider: User['provider']) {
   return `${getProviderLabel(provider)}로 가입된 계정이예요. 다른 수단으로 로그인 해보세요`;
 }
 
+function getUserRole(user: Pick<User, 'role'> | Partial<Pick<User, 'role'>>) {
+  return user.role === 'admin' ? 'admin' : 'user';
+}
+
 function hashValue(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -229,8 +233,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
       target.searchParams.set('state', state);
     }
 
-    set.redirect = target.toString();
-    return null;
+    return Response.redirect(target.toString(), 302);
   }, {
     detail: { summary: 'Kakao native login redirect bridge' },
   })
@@ -345,6 +348,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
         providerAccountId: email,
         name: email.split('@')[0],
         provider: 'email',
+        role: 'user',
         passwordHash: await hashPassword(body.password),
         createdAt: now,
         updatedAt: now,
@@ -415,6 +419,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
         email: user.email,
         provider: user.provider,
         isDeveloper: false,
+        role: getUserRole(user),
       });
 
       await recordLoginSession(
@@ -432,6 +437,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           avatarUrl: user.avatarUrl,
           provider: user.provider,
           isDeveloper: false,
+          role: getUserRole(user),
         },
       };
     },
@@ -490,6 +496,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           ...devUserProfile,
           providerAccountId: 'dev',
           provider: 'dev',
+          role: 'user',
           createdAt: now,
           updatedAt: now,
         });
@@ -497,6 +504,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           _id: result.insertedId,
           ...devUserProfile,
           provider: 'dev',
+          role: 'user',
           createdAt: now,
           updatedAt: now,
         };
@@ -522,6 +530,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
         email: user.email,
         provider: user.provider,
         isDeveloper: user.provider === 'dev',
+        role: getUserRole(user),
       });
 
       await recordLoginSession(
@@ -539,6 +548,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           avatarUrl: user.avatarUrl,
           provider: user.provider,
           isDeveloper: user.provider === 'dev',
+          role: getUserRole(user),
         },
       };
     },
@@ -660,6 +670,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           name,
           avatarUrl,
           provider: 'kakao',
+          role: 'user',
           createdAt: now,
           updatedAt: now,
         });
@@ -669,6 +680,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           name,
           avatarUrl,
           provider: 'kakao',
+          role: 'user',
           createdAt: now,
           updatedAt: now,
         };
@@ -697,6 +709,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
         email: user.email,
         provider: user.provider,
         isDeveloper: user.provider === 'dev',
+        role: getUserRole(user),
       });
 
       await recordLoginSession(
@@ -714,6 +727,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           avatarUrl: user.avatarUrl,
           provider: user.provider,
           isDeveloper: user.provider === 'dev',
+          role: getUserRole(user),
         },
       };
     },
@@ -798,6 +812,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           name: payload.name ?? email.split('@')[0],
           avatarUrl: payload.picture,
           provider: 'google',
+          role: 'user',
           createdAt: now,
           updatedAt: now,
         });
@@ -807,6 +822,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           name: payload.name ?? email.split('@')[0],
           avatarUrl: payload.picture,
           provider: 'google',
+          role: 'user',
           createdAt: now,
           updatedAt: now,
         };
@@ -835,6 +851,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
         email: user.email,
         provider: user.provider,
         isDeveloper: user.provider === 'dev',
+        role: getUserRole(user),
       });
 
       await recordLoginSession(
@@ -852,6 +869,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           avatarUrl: user.avatarUrl,
           provider: user.provider,
           isDeveloper: user.provider === 'dev',
+          role: getUserRole(user),
         },
       };
     },

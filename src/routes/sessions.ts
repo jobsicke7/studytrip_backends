@@ -76,7 +76,12 @@ async function canSkipLocationBoundary(db: Db, userId: ObjectId, isDeveloperAcco
     { _id: userId },
     { projection: { provider: 1, email: 1 } }
   );
-  return user?.provider === 'dev' || user?.email === 'dev@timer.local' || user?.email === 'doh292929@gmail.com';
+  return (
+    user?.provider === 'dev' ||
+    user?.email === 'dev@timer.local' ||
+    user?.email === 'doh292929@gmail.com' ||
+    user?.email === 'sdytrip.official@gmail.com'
+  );
 }
 
 async function checkSchoolBoundary(
@@ -216,7 +221,8 @@ function requireAuth() {
       payload.isDeveloper === true ||
       payload.provider === 'dev' ||
       payload.email === 'dev@timer.local' ||
-      payload.email === 'doh292929@gmail.com';
+      payload.email === 'doh292929@gmail.com' ||
+      payload.email === 'sdytrip.official@gmail.com';
     const authDeviceId = normalizeDeviceId(String(query.deviceId ?? query.device_id ?? headers['x-device-id'] ?? ''));
     const isActive = await isLoginSessionActive(db, new ObjectId(payload.sub), authDeviceId);
 

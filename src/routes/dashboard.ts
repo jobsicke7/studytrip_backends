@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia';
 import { Db, ObjectId, OptionalId } from 'mongodb';
 
 import type { Env } from '../config.js';
-import type { Goal, LoginSession, StudySession, Subject, TimerPreferences, User } from '../types.js';
+import type { Goal, LoginSession, Notice, StudySession, Subject, TimerPreferences, User } from '../types.js';
 import { notifyWeeklyLeaderboardChanged } from './leaderboard.js';
 import {
   buildLoginSessionMetadata,
@@ -73,10 +73,33 @@ const defaultTimerPreferences = {
   clockShowSeconds: true,
   timerFontStyle: 'jalnan',
   themeAccent: 'blue',
+  selectedBackgroundId: 'none',
+  selectedTimerMode: 'basic' as const,
 };
+
+function getUserRole(user: Partial<Pick<User, 'role'>>) {
+  return user.role === 'admin' ? 'admin' : 'user';
+}
+
+function toNoticeResponse(notice: Notice) {
+  return {
+    id: notice._id.toString(),
+    tag: notice.tag,
+    title: notice.title,
+    body: notice.body,
+    createdAt: notice.createdAt.toISOString(),
+    updatedAt: notice.updatedAt.toISOString(),
+  };
+}
 
 const dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+type PreferenceSocket = {
+  data: unknown;
+  send: (data: string) => unknown;
+  close?: () => unknown;
+};
+const preferenceSocketsByUser = new Map<string, Set<PreferenceSocket>>();
 
 function requireAuth() {
   return new Elysia<'', AppSingleton>().resolve({ as: 'global' }, async ({ jwt, headers, query, db, status }) => {
@@ -121,6 +144,31 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
       }
     },
   })
+  .ws('/preferences/timer/events', {
+    async open(ws) {
+      const data = ws.data as unknown as { db: Db; authUserId: string };
+      const sockets = preferenceSocketsByUser.get(data.authUserId) ?? new Set<PreferenceSocket>();
+      sockets.add(ws);
+      preferenceSocketsByUser.set(data.authUserId, sockets);
+
+      const preferences = await ensureTimerPreferences(data.db, new ObjectId(data.authUserId));
+      ws.send(JSON.stringify({ type: 'timer-preferences', payload: toTimerPreferencesResponse(preferences) }));
+    },
+    close(ws) {
+      const data = ws.data as unknown as { authUserId: string };
+      const sockets = preferenceSocketsByUser.get(data.authUserId);
+      if (!sockets) return;
+      sockets.delete(ws);
+      if (sockets.size === 0) {
+        preferenceSocketsByUser.delete(data.authUserId);
+      }
+    },
+    message(ws, message) {
+      if (message === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }));
+      }
+    },
+  })
   .get('/me', async ({ db, authUserId, set }) => {
     const user = await db.collection<OptionalId<User>>('users').findOne({ _id: new ObjectId(authUserId) });
     if (!user) {
@@ -134,6 +182,9 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         email: user.email,
         name: user.name,
         avatarUrl: user.avatarUrl,
+        provider: user.provider,
+        role: getUserRole(user),
+        isDeveloper: user.provider === 'dev',
       },
     };
   })
@@ -158,6 +209,9 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
           email: user.email,
           name: user.name,
           avatarUrl: user.avatarUrl,
+          provider: user.provider,
+          role: getUserRole(user),
+          isDeveloper: user.provider === 'dev',
         },
       };
     },
@@ -409,6 +463,8 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         clockShowSeconds: preferences.clockShowSeconds,
         timerFontStyle: preferences.timerFontStyle,
         themeAccent: preferences.themeAccent,
+        selectedBackgroundId: preferences.selectedBackgroundId,
+        selectedTimerMode: preferences.selectedTimerMode,
       },
     };
   })
@@ -438,9 +494,148 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         clockShowSeconds: preferences.clockShowSeconds,
         timerFontStyle: preferences.timerFontStyle,
         themeAccent: preferences.themeAccent,
+        selectedBackgroundId: preferences.selectedBackgroundId,
+        selectedTimerMode: preferences.selectedTimerMode,
       },
     };
   })
+  .get('/notices', async ({ db, authUserId }) => {
+    const user = await db.collection<OptionalId<User>>('users').findOne({ _id: new ObjectId(authUserId) });
+    const items = await db
+      .collection<OptionalId<Notice>>('notices')
+      .find({})
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .toArray();
+    const tags = Array.from(new Set(items.map((item) => item.tag).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ko'));
+
+    return {
+      items: items.map((item) => toNoticeResponse(item as Notice)),
+      tags,
+      canWrite: getUserRole(user ?? {}) === 'admin',
+    };
+  })
+  .post(
+    '/notices',
+    async ({ db, authUserId, body, set }) => {
+      const user = await db.collection<OptionalId<User>>('users').findOne({ _id: new ObjectId(authUserId) });
+      if (getUserRole(user ?? {}) !== 'admin') {
+        set.status = 403;
+        return { error: '공지 작성 권한이 없어요.' };
+      }
+
+      const tag = body.tag.trim();
+      const title = body.title.trim();
+      const noticeBody = body.body.trim();
+      if (!tag || !title || !noticeBody) {
+        set.status = 400;
+        return { error: '태그, 제목, 본문을 모두 입력해 주세요.' };
+      }
+
+      const now = new Date();
+      const result = await db.collection<OptionalId<Notice>>('notices').insertOne({
+        tag,
+        title,
+        body: noticeBody,
+        authorId: new ObjectId(authUserId),
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return {
+        notice: {
+          id: result.insertedId.toString(),
+          tag,
+          title,
+          body: noticeBody,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        },
+      };
+    },
+    {
+      body: t.Object({
+        tag: t.String({ minLength: 1, maxLength: 30 }),
+        title: t.String({ minLength: 1, maxLength: 80 }),
+        body: t.String({ minLength: 1, maxLength: 4000 }),
+      }),
+    }
+  )
+  .patch(
+    '/notices/:noticeId',
+    async ({ db, authUserId, params, body, set }) => {
+      const user = await db.collection<OptionalId<User>>('users').findOne({ _id: new ObjectId(authUserId) });
+      if (getUserRole(user ?? {}) !== 'admin') {
+        set.status = 403;
+        return { error: '공지 수정 권한이 없어요.' };
+      }
+      if (!ObjectId.isValid(params.noticeId)) {
+        set.status = 400;
+        return { error: '올바르지 않은 공지사항이에요.' };
+      }
+
+      const tag = body.tag.trim();
+      const title = body.title.trim();
+      const noticeBody = body.body.trim();
+      if (!tag || !title || !noticeBody) {
+        set.status = 400;
+        return { error: '태그, 제목, 본문을 모두 입력해 주세요.' };
+      }
+
+      const notice = await db.collection<OptionalId<Notice>>('notices').findOneAndUpdate(
+        { _id: new ObjectId(params.noticeId) },
+        {
+          $set: {
+            tag,
+            title,
+            body: noticeBody,
+            updatedAt: new Date(),
+          },
+        },
+        { returnDocument: 'after' }
+      );
+
+      if (!notice) {
+        set.status = 404;
+        return { error: '공지사항을 찾을 수 없어요.' };
+      }
+
+      return { notice: toNoticeResponse(notice as Notice) };
+    },
+    {
+      params: t.Object({ noticeId: t.String({ minLength: 1 }) }),
+      body: t.Object({
+        tag: t.String({ minLength: 1, maxLength: 30 }),
+        title: t.String({ minLength: 1, maxLength: 80 }),
+        body: t.String({ minLength: 1, maxLength: 4000 }),
+      }),
+    }
+  )
+  .delete(
+    '/notices/:noticeId',
+    async ({ db, authUserId, params, set }) => {
+      const user = await db.collection<OptionalId<User>>('users').findOne({ _id: new ObjectId(authUserId) });
+      if (getUserRole(user ?? {}) !== 'admin') {
+        set.status = 403;
+        return { error: '공지 삭제 권한이 없어요.' };
+      }
+      if (!ObjectId.isValid(params.noticeId)) {
+        set.status = 400;
+        return { error: '올바르지 않은 공지사항이에요.' };
+      }
+
+      const result = await db.collection<OptionalId<Notice>>('notices').deleteOne({ _id: new ObjectId(params.noticeId) });
+      if (result.deletedCount === 0) {
+        set.status = 404;
+        return { error: '공지사항을 찾을 수 없어요.' };
+      }
+
+      return { ok: true };
+    },
+    {
+      params: t.Object({ noticeId: t.String({ minLength: 1 }) }),
+    }
+  )
   .put(
     '/preferences/timer',
     async ({ db, authUserId, body }) => {
@@ -457,6 +652,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         { upsert: true }
       );
 
+      notifyTimerPreferencesChanged(authUserId, preferences);
       return { preferences };
     },
     {
@@ -475,6 +671,45 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         clockShowSeconds: t.Optional(t.Boolean()),
         timerFontStyle: t.Optional(t.String()),
         themeAccent: t.Optional(t.String()),
+        selectedBackgroundId: t.Optional(t.String()),
+        selectedTimerMode: t.Optional(t.Union([t.Literal('basic'), t.Literal('pomodoro'), t.Literal('clock')])),
+      }),
+    }
+  )
+  .patch(
+    '/preferences/timer',
+    async ({ db, authUserId, body }) => {
+      const userId = new ObjectId(authUserId);
+      const existing = await ensureTimerPreferences(db, userId);
+      const now = new Date();
+      const preferences = normalizeTimerPreferences({ ...existing, ...body });
+
+      await db.collection<OptionalId<TimerPreferences>>('timer_preferences').updateOne(
+        { userId },
+        { $set: { ...preferences, updatedAt: now } }
+      );
+
+      notifyTimerPreferencesChanged(authUserId, preferences);
+      return { preferences };
+    },
+    {
+      body: t.Object({
+        pomodoroFocusMinutes: t.Optional(t.Number({ minimum: 1, maximum: 180 })),
+        pomodoroBreakMinutes: t.Optional(t.Number({ minimum: 1, maximum: 180 })),
+        pomodoroLongBreakMinutes: t.Optional(t.Number({ minimum: 1, maximum: 180 })),
+        pomodoroLongBreakInterval: t.Optional(t.Number({ minimum: 2, maximum: 12 })),
+        pomodoroAlarmOn: t.Optional(t.Boolean()),
+        pomodoroFocusWhiteNoise: t.Optional(t.String()),
+        pomodoroBreakWhiteNoise: t.Optional(t.String()),
+        pomodoroFocusWhiteNoiseVolume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
+        pomodoroBreakWhiteNoiseVolume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
+        whiteNoiseVolume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
+        clockFormat: t.Optional(t.Union([t.Literal('12h'), t.Literal('24h')])),
+        clockShowSeconds: t.Optional(t.Boolean()),
+        timerFontStyle: t.Optional(t.String()),
+        themeAccent: t.Optional(t.String()),
+        selectedBackgroundId: t.Optional(t.String()),
+        selectedTimerMode: t.Optional(t.Union([t.Literal('basic'), t.Literal('pomodoro'), t.Literal('clock')])),
       }),
     }
   )
@@ -1029,9 +1264,11 @@ async function ensureSubjects(db: Db, userId: ObjectId) {
   if (existing.length > 0) {
     const uniqueSubjects: OptionalId<Subject>[] = [];
     const seenSubjectIds = new Set<string>();
+    const duplicateIds: ObjectId[] = [];
 
     for (const subject of existing) {
       if (seenSubjectIds.has(subject.subjectId)) {
+        duplicateIds.push(subject._id);
         continue;
       }
 
@@ -1039,18 +1276,30 @@ async function ensureSubjects(db: Db, userId: ObjectId) {
       uniqueSubjects.push(subject);
     }
 
+    if (duplicateIds.length > 0) {
+      await subjects.deleteMany({ _id: { $in: duplicateIds } });
+    }
+
     return uniqueSubjects;
   }
 
   const now = new Date();
-  await subjects.insertMany(
-    defaultSubjects.map((subject) => ({
-      ...subject,
-      userId,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    }))
+  await Promise.all(
+    defaultSubjects.map((subject) =>
+      subjects.updateOne(
+        { userId, subjectId: subject.subjectId },
+        {
+          $setOnInsert: {
+            ...subject,
+            userId,
+            isActive: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        { upsert: true }
+      )
+    )
   );
 
   return subjects.find({ userId }).sort({ order: 1 }).toArray();
@@ -1121,6 +1370,42 @@ async function ensureTimerPreferences(db: Db, userId: ObjectId) {
   return { _id: result.insertedId, ...document };
 }
 
+function toTimerPreferencesResponse(preferences: ReturnType<typeof normalizeTimerPreferences>) {
+  return {
+    pomodoroFocusMinutes: preferences.pomodoroFocusMinutes,
+    pomodoroBreakMinutes: preferences.pomodoroBreakMinutes,
+    pomodoroLongBreakMinutes: preferences.pomodoroLongBreakMinutes,
+    pomodoroLongBreakInterval: preferences.pomodoroLongBreakInterval,
+    pomodoroAlarmOn: preferences.pomodoroAlarmOn,
+    pomodoroFocusWhiteNoise: preferences.pomodoroFocusWhiteNoise,
+    pomodoroBreakWhiteNoise: preferences.pomodoroBreakWhiteNoise,
+    pomodoroFocusWhiteNoiseVolume: preferences.pomodoroFocusWhiteNoiseVolume,
+    pomodoroBreakWhiteNoiseVolume: preferences.pomodoroBreakWhiteNoiseVolume,
+    whiteNoiseVolume: preferences.whiteNoiseVolume,
+    clockFormat: preferences.clockFormat,
+    clockShowSeconds: preferences.clockShowSeconds,
+    timerFontStyle: preferences.timerFontStyle,
+    themeAccent: preferences.themeAccent,
+    selectedBackgroundId: preferences.selectedBackgroundId,
+    selectedTimerMode: preferences.selectedTimerMode,
+  };
+}
+
+function notifyTimerPreferencesChanged(userId: string, preferences: ReturnType<typeof normalizeTimerPreferences>) {
+  const sockets = preferenceSocketsByUser.get(userId);
+  if (!sockets) return;
+
+  const message = JSON.stringify({ type: 'timer-preferences', payload: toTimerPreferencesResponse(preferences) });
+  for (const socket of Array.from(sockets)) {
+    try {
+      socket.send(message);
+    } catch {
+      sockets.delete(socket);
+      socket.close?.();
+    }
+  }
+}
+
 function needsTimerPreferencesUpdate(
   existing: TimerPreferences,
   normalized: ReturnType<typeof normalizeTimerPreferences>
@@ -1139,7 +1424,9 @@ function needsTimerPreferencesUpdate(
     existing.clockFormat !== normalized.clockFormat ||
     existing.clockShowSeconds !== normalized.clockShowSeconds ||
     existing.timerFontStyle !== normalized.timerFontStyle ||
-    existing.themeAccent !== normalized.themeAccent
+    existing.themeAccent !== normalized.themeAccent ||
+    existing.selectedBackgroundId !== normalized.selectedBackgroundId ||
+    existing.selectedTimerMode !== normalized.selectedTimerMode
   );
 }
 
@@ -1161,6 +1448,8 @@ function normalizeTimerPreferences(
       | 'clockShowSeconds'
       | 'timerFontStyle'
       | 'themeAccent'
+      | 'selectedBackgroundId'
+      | 'selectedTimerMode'
     >
   >
 ) {
@@ -1215,12 +1504,25 @@ function normalizeTimerPreferences(
         ? preferences.timerFontStyle.trim().slice(0, 40)
         : defaultTimerPreferences.timerFontStyle,
     themeAccent: normalizeThemeAccent(preferences.themeAccent),
+    selectedBackgroundId: normalizePreferenceId(preferences.selectedBackgroundId, defaultTimerPreferences.selectedBackgroundId),
+    selectedTimerMode: normalizeTimerMode(preferences.selectedTimerMode),
   };
 }
 
 function normalizeThemeAccent(value: unknown) {
   const id = typeof value === 'string' ? value.trim() : '';
   return ['blue', 'beige', 'red', 'purple', 'pink', 'green', 'cyan'].includes(id) ? id : defaultTimerPreferences.themeAccent;
+}
+
+function normalizeTimerMode(value: unknown): NonNullable<TimerPreferences['selectedTimerMode']> {
+  if (value === 'pomodoro' || value === 'clock' || value === 'basic') {
+    return value;
+  }
+  return defaultTimerPreferences.selectedTimerMode;
+}
+
+function normalizePreferenceId(value: unknown, fallback: string) {
+  return typeof value === 'string' && value.trim() ? value.trim().slice(0, 80) : fallback;
 }
 
 function normalizeWhiteNoise(value: unknown) {

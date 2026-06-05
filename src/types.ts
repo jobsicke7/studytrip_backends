@@ -7,7 +7,18 @@ export type User = {
   name: string;
   avatarUrl?: string;
   provider: 'google' | 'kakao' | 'email' | 'dev';
+  role: 'user' | 'admin';
   passwordHash?: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type Notice = {
+  _id: ObjectId;
+  tag: string;
+  title: string;
+  body: string;
+  authorId: ObjectId;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -75,6 +86,8 @@ export type TimerPreferences = {
   clockShowSeconds?: boolean;
   timerFontStyle?: string;
   themeAccent?: string;
+  selectedBackgroundId?: string;
+  selectedTimerMode?: 'basic' | 'pomodoro' | 'clock';
   createdAt: Date;
   updatedAt: Date;
 };
