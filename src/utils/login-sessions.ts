@@ -153,6 +153,14 @@ export function inferOsName(platform: string, userAgent: string) {
   return null;
 }
 
+export function normalizeClientOsName(osName: string, platform: string, userAgent: string) {
+  const inferred = inferOsName(platform, userAgent);
+  if (inferred === 'Android' && /^linux$/i.test(osName)) {
+    return 'Android';
+  }
+  return osName || inferred;
+}
+
 export function inferOsVersion(userAgent: string) {
   return (
     getUaMatch(userAgent, /Windows NT ([\d.]+)/i) ??
@@ -209,7 +217,7 @@ export function buildLoginSessionMetadata({
     userAgent,
     browserName: browserName || inferBrowserName(userAgent),
     browserVersion: browserVersion || inferBrowserVersion(userAgent),
-    osName: osName || inferOsName(platform, userAgent),
+    osName: normalizeClientOsName(osName, platform, userAgent),
     osVersion: osVersion || inferOsVersion(userAgent),
     ipAddress: bodyIpAddress || null,
     regionName: regionName || null,
@@ -237,7 +245,7 @@ export async function recordLoginSession(db: Db, userId: ObjectId, metadata: Log
         userAgent,
         browserName: metadata.browserName ?? inferBrowserName(userAgent),
         browserVersion: metadata.browserVersion ?? inferBrowserVersion(userAgent),
-        osName: metadata.osName ?? inferOsName(platform, userAgent),
+        osName: normalizeClientOsName(metadata.osName ?? '', platform, userAgent),
         osVersion: metadata.osVersion ?? inferOsVersion(userAgent),
         ipAddress: metadata.ipAddress ?? null,
         regionName: metadata.regionName ?? null,
@@ -273,7 +281,7 @@ export async function touchLoginSession(db: Db, userId: ObjectId, metadata: Logi
     userAgent,
     browserName: metadata.browserName ?? inferBrowserName(userAgent),
     browserVersion: metadata.browserVersion ?? inferBrowserVersion(userAgent),
-    osName: metadata.osName ?? inferOsName(platform, userAgent),
+    osName: normalizeClientOsName(metadata.osName ?? '', platform, userAgent),
     osVersion: metadata.osVersion ?? inferOsVersion(userAgent),
     isActive: true,
     lastSeenAt: now,
@@ -308,6 +316,7 @@ export function toLoginSessionResponse(session: LoginSession, currentDeviceId: s
   const isCurrent = session.deviceId === currentDeviceId;
   const lastLogin = session.lastLogin?.toISOString?.() ?? new Date().toISOString();
   const lastSeenAt = session.lastSeenAt?.toISOString?.() ?? lastLogin;
+  const osName = normalizeClientOsName(session.osName ?? '', session.platform ?? '', session.userAgent ?? '') ?? null;
 
   return {
     sessionId: session.deviceId,
@@ -320,7 +329,7 @@ export function toLoginSessionResponse(session: LoginSession, currentDeviceId: s
     deviceType: session.deviceType,
     browserName: session.browserName ?? null,
     browserVersion: session.browserVersion ?? null,
-    osName: session.osName ?? null,
+    osName,
     osVersion: session.osVersion ?? null,
     ipAddress: session.ipAddress ?? null,
     regionName: session.regionName ?? null,
@@ -337,7 +346,7 @@ export function toLoginSessionResponse(session: LoginSession, currentDeviceId: s
     device_type: session.deviceType,
     browser_name: session.browserName ?? null,
     browser_version: session.browserVersion ?? null,
-    os_name: session.osName ?? null,
+    os_name: osName,
     os_version: session.osVersion ?? null,
     ip_address: session.ipAddress ?? null,
     city_name: session.cityName ?? null,

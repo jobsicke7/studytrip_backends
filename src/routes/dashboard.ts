@@ -7,6 +7,7 @@ import { notifyWeeklyLeaderboardChanged } from './leaderboard.js';
 import {
   buildLoginSessionMetadata,
   isLoginSessionActive,
+  normalizeClientOsName,
   normalizeDeviceId,
   toLoginSessionResponse,
   touchLoginSession,
@@ -296,7 +297,9 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
       if (body.userAgent !== undefined) update.userAgent = body.userAgent ?? '';
       if (body.browserName !== undefined) update.browserName = body.browserName ?? null;
       if (body.browserVersion !== undefined) update.browserVersion = body.browserVersion ?? null;
-      if (body.osName !== undefined) update.osName = body.osName ?? null;
+      if (body.osName !== undefined) {
+        update.osName = normalizeClientOsName(String(body.osName ?? ''), String(body.platform ?? ''), String(body.userAgent ?? '')) ?? null;
+      }
       if (body.osVersion !== undefined) update.osVersion = body.osVersion ?? null;
       if (body.ipAddress !== undefined) update.ipAddress = body.ipAddress ?? null;
       if (body.regionName !== undefined) update.regionName = body.regionName ?? null;
