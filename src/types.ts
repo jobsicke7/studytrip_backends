@@ -35,6 +35,10 @@ export type StudySession = {
   lastStartedAt: Date;
   stoppedAt?: Date;
   durationSeconds?: number;
+  studySegments?: {
+    startedAt: Date;
+    endedAt?: Date;
+  }[];
   stopReason?: string;
   accumulatedSeconds: number;
   lastLatitude: number;

@@ -4,6 +4,7 @@ import { Db, ObjectId, OptionalId } from 'mongodb';
 import type { Env } from '../config.js';
 import type { Goal, LoginSession, Notice, StudySession, Subject, TimerPreferences, User } from '../types.js';
 import { notifyWeeklyLeaderboardChanged } from './leaderboard.js';
+import { buildLocationBoundaryConfig } from './app-config.js';
 import {
   buildLoginSessionMetadata,
   isLoginSessionActive,
@@ -80,6 +81,10 @@ const defaultTimerPreferences = {
 
 function getUserRole(user: Partial<Pick<User, 'role'>>) {
   return user.role === 'admin' ? 'admin' : 'user';
+}
+
+function isLocationExemptUser(user: Pick<User, '_id' | 'provider'>) {
+  return user.provider === 'dev' || buildLocationBoundaryConfig().exemptUserIds.includes(user._id.toString());
 }
 
 function toNoticeResponse(notice: Notice) {
@@ -186,6 +191,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
         provider: user.provider,
         role: getUserRole(user),
         isDeveloper: user.provider === 'dev',
+        isLocationExempt: isLocationExemptUser(user),
       },
     };
   })
@@ -213,6 +219,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
           provider: user.provider,
           role: getUserRole(user),
           isDeveloper: user.provider === 'dev',
+          isLocationExempt: isLocationExemptUser(user),
         },
       };
     },
@@ -520,7 +527,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
   })
   .post(
     '/notices',
-    async ({ db, authUserId, body, set }) => {
+    async ({ db, env, authUserId, body, set }) => {
       const user = await db.collection<OptionalId<User>>('users').findOne({ _id: new ObjectId(authUserId) });
       if (getUserRole(user ?? {}) !== 'admin') {
         set.status = 403;

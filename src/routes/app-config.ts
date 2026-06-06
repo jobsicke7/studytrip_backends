@@ -12,24 +12,65 @@ type AppSingleton = {
   resolve: {};
 };
 
-const timerFontStyleSeeds = [
-  { id: 'jalnan', label: '잘난체', fontFamily: 'TimerFontJalnan', fontFile: 'Jalnan2.otf' },
-  { id: 'pretendard', label: '프리텐다드', fontFamily: 'TimerFontPretendard', fontFile: 'PretendardVariable.ttf' },
-  { id: 'jejudoldam', label: '제주돌담체', fontFamily: 'TimerFontJejuDoldam', fontFile: 'EF_jejudoldam(OTF).otf' },
-  { id: 'inklip', label: '손글씨', fontFamily: 'TimerFontInklip', fontFile: 'THEFACESHOP+INKLIPQUID(윈도우용).ttf' },
-] as const;
+export const config = {
+  auth: {
+    showTestLoginButton: true,
+  },
+  locationBoundary: {
+    enabled: false,
+    latitude: 37.56249619,
+    longitude: 127.0894052,
+    radiusMeters: 250,
+    exemptUserIds: ['6a22c57336e08f80e926f15c'] as string[],
+  },
+  backgrounds: [
+    { id: 'none', label: '배경 없음' },
+    { id: 'seoul_city_view', label: '서울 도시뷰' },
+    { id: 'japan_street', label: '일본 거리' },
+    { id: 'fire', label: '모닥불' },
+    { id: 'library', label: '도서관' },
+    { id: 'sakuraroad', label: '벚꽃 길' },
+    { id: 'space', label: '우주' },
+    { id: 'japanrail', label: '일본 철도역' },
+    { id: 'oceanroad', label: '해변 도로' },
+  ],
+  whiteNoise: {
+    options: [
+      { id: 'none', label: '사용 안 함', icon: 'volume-off' },
+      { id: 'rain', label: '빗소리', icon: 'water-drop' },
+      { id: 'waves', label: '파도 소리', icon: 'waves' },
+      { id: 'forest', label: '숲 소리', icon: 'forest' },
+      { id: 'cafe', label: '카페 소음', icon: 'local-cafe' },
+      { id: 'city', label: '도시 소음', icon: 'location-city' },
+      { id: 'airplane', label: '비행기 기내 소음', icon: 'flight' },
+    ],
+  },
+  clockFormats: [
+    { id: '12h', label: '12시간제', preview: '2:24' },
+    { id: '24h', label: '24시간제', preview: '14:24' },
+  ],
+  timerFontStyles: [
+    { id: 'jalnan', label: '잘난체', fontFamily: 'TimerFontJalnan', fontFile: 'Jalnan2.otf' },
+    { id: 'pretendard', label: '프리텐다드', fontFamily: 'TimerFontPretendard', fontFile: 'PretendardVariable.ttf' },
+    { id: 'jejudoldam', label: '제주돌담체', fontFamily: 'TimerFontJejuDoldam', fontFile: 'EF_jejudoldam(OTF).otf' },
+    { id: 'inklip', label: '손글씨', fontFamily: 'TimerFontInklip', fontFile: 'THEFACESHOP+INKLIPQUID(윈도우용).ttf' },
+  ],
+  themeAccents: [
+    { id: 'blue', label: '파란색', primary: '#BFDBFE', soft: 'rgba(147,197,253,0.16)', border: 'rgba(147,197,253,0.3)', textOnPrimary: '#0F172A' },
+    { id: 'beige', label: '베이지', primary: '#F4DFC0', soft: 'rgba(244,223,192,0.16)', border: 'rgba(244,223,192,0.3)', textOnPrimary: '#1B130B' },
+    { id: 'red', label: '붉은색', primary: '#FCA5A5', soft: 'rgba(252,165,165,0.16)', border: 'rgba(252,165,165,0.32)', textOnPrimary: '#1F1111' },
+    { id: 'purple', label: '보라색', primary: '#C4B5FD', soft: 'rgba(196,181,253,0.16)', border: 'rgba(196,181,253,0.32)', textOnPrimary: '#17111F' },
+    { id: 'pink', label: '핑크색', primary: '#F9A8D4', soft: 'rgba(249,168,212,0.16)', border: 'rgba(249,168,212,0.32)', textOnPrimary: '#1F1119' },
+    { id: 'green', label: '초록색', primary: '#A7F3D0', soft: 'rgba(167,243,208,0.16)', border: 'rgba(167,243,208,0.32)', textOnPrimary: '#0D1F17' },
+    { id: 'cyan', label: '시안', primary: '#67E8F9', soft: 'rgba(103,232,249,0.16)', border: 'rgba(103,232,249,0.32)', textOnPrimary: '#071D22' },
+  ],
+} as const;
 
-const themeAccentSeeds = [
-  { id: 'blue', label: '파란색', primary: '#BFDBFE', soft: 'rgba(147,197,253,0.16)', border: 'rgba(147,197,253,0.3)', textOnPrimary: '#0F172A' },
-  { id: 'beige', label: '베이지', primary: '#F4DFC0', soft: 'rgba(244,223,192,0.16)', border: 'rgba(244,223,192,0.3)', textOnPrimary: '#1B130B' },
-  { id: 'red', label: '붉은색', primary: '#FCA5A5', soft: 'rgba(252,165,165,0.16)', border: 'rgba(252,165,165,0.32)', textOnPrimary: '#1F1111' },
-  { id: 'purple', label: '보라색', primary: '#C4B5FD', soft: 'rgba(196,181,253,0.16)', border: 'rgba(196,181,253,0.32)', textOnPrimary: '#17111F' },
-  { id: 'pink', label: '핑크색', primary: '#F9A8D4', soft: 'rgba(249,168,212,0.16)', border: 'rgba(249,168,212,0.32)', textOnPrimary: '#1F1119' },
-  { id: 'green', label: '초록색', primary: '#A7F3D0', soft: 'rgba(167,243,208,0.16)', border: 'rgba(167,243,208,0.32)', textOnPrimary: '#0D1F17' },
-  { id: 'cyan', label: '시안', primary: '#67E8F9', soft: 'rgba(103,232,249,0.16)', border: 'rgba(103,232,249,0.32)', textOnPrimary: '#071D22' },
-] as const;
+const allowedFontFiles = new Set(config.timerFontStyles.map((font) => font.fontFile));
 
-const allowedFontFiles = new Set(timerFontStyleSeeds.map((font) => font.fontFile));
+export function buildLocationBoundaryConfig() {
+  return config.locationBoundary;
+}
 
 function getFontContentType(fontFile: string) {
   const lowerFontFile = fontFile.toLowerCase();
@@ -57,53 +98,39 @@ function buildAppConfig(env: Env, apiBaseUrl: string) {
     id !== 'none' && whiteNoiseBaseUrl ? `${whiteNoiseBaseUrl}/${whiteNoisePrefix}/${id}.mp3` : null;
   const getFontUrl = (fontFile: string | null) =>
     fontFile && apiBaseUrl ? `${apiBaseUrl}/app/fonts/${encodeURIComponent(fontFile)}` : null;
+  const locationBoundary = buildLocationBoundaryConfig();
 
-  const config = {
+  const publicConfig = {
     auth: {
-      showTestLoginButton: env.SHOW_TEST_LOGIN_BUTTON,
+      showTestLoginButton: config.auth.showTestLoginButton,
     },
-    backgrounds: [
-      { id: 'none', label: '배경 없음' },
-      { id: 'seoul_city_view', label: '서울 도시뷰' },
-      { id: 'japan_street', label: '일본 거리' },
-      { id: 'fire', label: '모닥불' },
-      { id: 'library', label: '도서관' },
-      { id: 'sakuraroad', label: '벚꽃 길' },
-      { id: 'space', label: '우주' },
-      { id: 'japanrail', label: '일본 철도역' },
-      { id: 'oceanroad', label: '해변 도로' },
-    ].map((background) => ({
+    locationBoundary: {
+      enabled: locationBoundary.enabled,
+      latitude: locationBoundary.latitude,
+      longitude: locationBoundary.longitude,
+      radiusMeters: locationBoundary.radiusMeters,
+    },
+    backgrounds: config.backgrounds.map((background) => ({
       ...background,
       imageUrl: getBackgroundUrl(background.id),
     })),
     whiteNoise: {
-      options: [
-        { id: 'none', label: '사용 안 함', icon: 'volume-off' },
-        { id: 'rain', label: '빗소리', icon: 'water-drop' },
-        { id: 'waves', label: '파도 소리', icon: 'waves' },
-        { id: 'forest', label: '숲 소리', icon: 'forest' },
-        { id: 'cafe', label: '카페 소음', icon: 'local-cafe' },
-        { id: 'city', label: '도시 소음', icon: 'location-city' },
-        { id: 'airplane', label: '비행기 기내 소음', icon: 'flight' },
-      ].map((option) => ({
+      options: config.whiteNoise.options.map((option) => ({
         ...option,
         streamUrl: getWhiteNoiseUrl(option.id),
       })),
     },
-    clockFormats: [
-      { id: '12h', label: '12시간제', preview: '2:24' },
-      { id: '24h', label: '24시간제', preview: '14:24' },
-    ],
-    timerFontStyles: timerFontStyleSeeds.map(({ fontFile, ...font }) => ({
+    clockFormats: config.clockFormats,
+    timerFontStyles: config.timerFontStyles.map(({ fontFile, ...font }) => ({
       ...font,
       fontUrl: getFontUrl(fontFile),
     })),
-    themeAccents: themeAccentSeeds,
+    themeAccents: config.themeAccents,
   };
 
   return {
-    revision: createHash('sha1').update(JSON.stringify(config)).digest('hex'),
-    ...config,
+    revision: createHash('sha1').update(JSON.stringify(publicConfig)).digest('hex'),
+    ...publicConfig,
   };
 }
 
@@ -131,7 +158,7 @@ export const appConfigRoutes = new Elysia<'', AppSingleton>()
   })
   .get('/app/fonts/:fontFile', async ({ env, params, status }) => {
     const fontFile = decodeURIComponent(params.fontFile);
-    if (!allowedFontFiles.has(fontFile as (typeof timerFontStyleSeeds)[number]['fontFile'])) {
+    if (!allowedFontFiles.has(fontFile as (typeof config.timerFontStyles)[number]['fontFile'])) {
       return status(404, { error: 'Font not found' });
     }
 

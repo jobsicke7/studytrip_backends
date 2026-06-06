@@ -8,6 +8,7 @@ import { Resend } from 'resend';
 import type { Env } from '../config.js';
 import type { User } from '../types.js';
 import { buildLoginSessionMetadata, recordLoginSession } from '../utils/login-sessions.js';
+import { buildLocationBoundaryConfig } from './app-config.js';
 
 type JwtService = {
   sign: (payload: Record<string, unknown>) => Promise<string>;
@@ -101,6 +102,10 @@ function getDuplicateAccountMessage(provider: User['provider']) {
 
 function getUserRole(user: Pick<User, 'role'> | Partial<Pick<User, 'role'>>) {
   return user.role === 'admin' ? 'admin' : 'user';
+}
+
+function isLocationExemptUser(user: Pick<User, '_id' | 'provider'>) {
+  return user.provider === 'dev' || buildLocationBoundaryConfig().exemptUserIds.includes(user._id.toString());
 }
 
 function hashValue(value: string) {
@@ -437,6 +442,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           avatarUrl: user.avatarUrl,
           provider: user.provider,
           isDeveloper: false,
+          isLocationExempt: isLocationExemptUser(user),
           role: getUserRole(user),
         },
       };
@@ -548,6 +554,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           avatarUrl: user.avatarUrl,
           provider: user.provider,
           isDeveloper: user.provider === 'dev',
+          isLocationExempt: isLocationExemptUser(user),
           role: getUserRole(user),
         },
       };
@@ -727,6 +734,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           avatarUrl: user.avatarUrl,
           provider: user.provider,
           isDeveloper: user.provider === 'dev',
+          isLocationExempt: isLocationExemptUser(user),
           role: getUserRole(user),
         },
       };
@@ -869,6 +877,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
           avatarUrl: user.avatarUrl,
           provider: user.provider,
           isDeveloper: user.provider === 'dev',
+          isLocationExempt: isLocationExemptUser(user),
           role: getUserRole(user),
         },
       };

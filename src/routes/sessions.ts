@@ -4,8 +4,10 @@ import { Db, ObjectId, OptionalId } from 'mongodb';
 import type { Env } from '../config.js';
 import type { StudySession, User } from '../types.js';
 import { notifyWeeklyLeaderboardChanged } from './leaderboard.js';
+import { buildLocationBoundaryConfig } from './app-config.js';
 import { isWithinRadius } from '../utils/geo.js';
 import { isLoginSessionActive, normalizeDeviceId } from '../utils/login-sessions.js';
+import { notifyUserSessionChanged } from '../utils/session-events.js';
 
 type JwtService = {
   verify: (token?: string) => Promise<{
@@ -63,12 +65,25 @@ function getStudyDurationSeconds(session: StudySession, accumulatedSeconds: numb
   );
 }
 
-function isInsideSchoolBoundary(env: Env, latitude: number, longitude: number) {
-  return isWithinRadius(latitude, longitude, env.SCHOOL_LAT, env.SCHOOL_LNG, env.SCHOOL_RADIUS_M);
+function getLocationBoundaryPolicy() {
+  const { exemptUserIds: _exemptUserIds, ...policy } = buildLocationBoundaryConfig();
+  return policy;
 }
 
-async function canSkipLocationBoundary(db: Db, userId: ObjectId, isDeveloperAccount: boolean) {
+function isInsideSchoolBoundary(env: Env, latitude: number, longitude: number) {
+  const policy = getLocationBoundaryPolicy();
+  if (!policy.enabled) {
+    return true;
+  }
+  return isWithinRadius(latitude, longitude, policy.latitude, policy.longitude, policy.radiusMeters);
+}
+
+async function canSkipLocationBoundary(db: Db, env: Env, userId: ObjectId, isDeveloperAccount: boolean) {
   if (isDeveloperAccount) {
+    return true;
+  }
+
+  if (buildLocationBoundaryConfig().exemptUserIds.includes(userId.toString())) {
     return true;
   }
 
@@ -76,12 +91,24 @@ async function canSkipLocationBoundary(db: Db, userId: ObjectId, isDeveloperAcco
     { _id: userId },
     { projection: { provider: 1, email: 1 } }
   );
-  return (
-    user?.provider === 'dev' ||
-    user?.email === 'dev@timer.local' ||
-    user?.email === 'doh292929@gmail.com' ||
-    user?.email === 'sdytrip.official@gmail.com'
-  );
+  return user?.provider === 'dev';
+}
+
+function getStudySegmentsForUpdate(session: StudySession, endAt: Date) {
+  const segments = Array.isArray(session.studySegments) && session.studySegments.length > 0
+    ? session.studySegments
+    : [{ startedAt: session.lastStartedAt ?? session.startedAt }];
+
+  return segments.map((segment, index) => {
+    if (index !== segments.length - 1 || segment.endedAt) {
+      return segment;
+    }
+
+    return {
+      ...segment,
+      endedAt: endAt,
+    };
+  });
 }
 
 async function checkSchoolBoundary(
@@ -92,7 +119,7 @@ async function checkSchoolBoundary(
   latitude: number,
   longitude: number
 ) {
-  if (await canSkipLocationBoundary(db, userId, isDeveloperAccount)) {
+  if (await canSkipLocationBoundary(db, env, userId, isDeveloperAccount)) {
     return true;
   }
   return isInsideSchoolBoundary(env, latitude, longitude);
@@ -147,6 +174,7 @@ async function stopStudySession(
   }
 
   const durationSeconds = getStudyDurationSeconds(session, accumulatedSeconds);
+  const studySegments = session.status === 'running' ? getStudySegmentsForUpdate(session, stoppedAt) : session.studySegments;
 
   await sessions.updateOne(
     { _id: session._id },
@@ -156,6 +184,7 @@ async function stopStudySession(
         stoppedAt: recordedStoppedAt,
         durationSeconds,
         accumulatedSeconds,
+        ...(studySegments ? { studySegments } : {}),
         lastLatitude: latitude,
         lastLongitude: longitude,
         lastRecordedAt: recordedStoppedAt,
@@ -166,6 +195,7 @@ async function stopStudySession(
   );
 
   notifyWeeklyLeaderboardChanged(db);
+  notifyUserSessionChanged(session.userId.toString());
   return { sessionId: session._id.toString(), status: 'stopped' as const, durationSeconds };
 }
 
@@ -183,6 +213,7 @@ async function pauseStudySession(
     Math.floor((pausedAt.getTime() - session.lastStartedAt.getTime()) / 1000)
   );
   const accumulatedSeconds = (session.accumulatedSeconds ?? 0) + deltaSeconds;
+  const studySegments = getStudySegmentsForUpdate(session, pausedAt);
 
   await sessions.updateOne(
     { _id: session._id },
@@ -190,6 +221,7 @@ async function pauseStudySession(
       $set: {
         status: 'paused',
         accumulatedSeconds,
+        studySegments,
         lastLatitude: latitude,
         lastLongitude: longitude,
         lastRecordedAt: pausedAt,
@@ -200,6 +232,7 @@ async function pauseStudySession(
   );
 
   notifyWeeklyLeaderboardChanged(db);
+  notifyUserSessionChanged(session.userId.toString());
   return { sessionId: session._id.toString(), status: 'paused' as const, accumulatedSeconds };
 }
 
@@ -219,10 +252,7 @@ function requireAuth() {
 
     const isDeveloperAccount =
       payload.isDeveloper === true ||
-      payload.provider === 'dev' ||
-      payload.email === 'dev@timer.local' ||
-      payload.email === 'doh292929@gmail.com' ||
-      payload.email === 'sdytrip.official@gmail.com';
+      payload.provider === 'dev';
     const authDeviceId = normalizeDeviceId(String(query.deviceId ?? query.device_id ?? headers['x-device-id'] ?? ''));
     const isActive = await isLoginSessionActive(db, new ObjectId(payload.sub), authDeviceId);
 
@@ -259,6 +289,7 @@ export const sessionRoutes = new Elysia<'/sessions', AppSingleton>({ prefix: '/s
       const existing = await sessions.findOne({ userId, status: 'running' });
       if (existing) {
         notifyWeeklyLeaderboardChanged(db);
+        notifyUserSessionChanged(userId.toString());
         return {
           sessionId: existing._id.toString(),
           status: 'running',
@@ -281,6 +312,7 @@ export const sessionRoutes = new Elysia<'/sessions', AppSingleton>({ prefix: '/s
         status: 'running',
         startedAt: now,
         lastStartedAt: now,
+        studySegments: [{ startedAt: now }],
         accumulatedSeconds: 0,
         lastLatitude: body.latitude,
         lastLongitude: body.longitude,
@@ -290,6 +322,7 @@ export const sessionRoutes = new Elysia<'/sessions', AppSingleton>({ prefix: '/s
       });
 
       notifyWeeklyLeaderboardChanged(db);
+      notifyUserSessionChanged(userId.toString());
       return {
         sessionId: result.insertedId.toString(),
         status: 'running',
@@ -383,6 +416,7 @@ export const sessionRoutes = new Elysia<'/sessions', AppSingleton>({ prefix: '/s
           $set: {
             status: 'running',
             lastStartedAt: resumedAt,
+            studySegments: [...(session.studySegments ?? []), { startedAt: resumedAt }],
             lastLatitude: body.latitude,
             lastLongitude: body.longitude,
             lastRecordedAt: resumedAt,
@@ -392,6 +426,7 @@ export const sessionRoutes = new Elysia<'/sessions', AppSingleton>({ prefix: '/s
       );
 
       notifyWeeklyLeaderboardChanged(db);
+      notifyUserSessionChanged(userId.toString());
       return { sessionId: session._id.toString(), status: 'running' };
     },
     {
@@ -459,7 +494,7 @@ sessionRoutes
       const userId = new ObjectId(authUserId);
       return {
         inside: await checkSchoolBoundary(db, env, userId, isDeveloperAccount, body.latitude, body.longitude),
-        radiusMeters: env.SCHOOL_RADIUS_M,
+        radiusMeters: buildLocationBoundaryConfig().radiusMeters,
       };
     },
     {
@@ -525,19 +560,23 @@ sessionRoutes
       detail: { summary: 'Update active session location' },
     }
   )
-  .get('/active', async ({ db, authUserId }) => {
+  .get('/active', async ({ db, env, authUserId, isDeveloperAccount }) => {
     const sessions = db.collection<OptionalId<StudySession>>('study_sessions');
     const userId = new ObjectId(authUserId);
+    const locationBoundary = getLocationBoundaryPolicy();
+    const isLocationExempt = await canSkipLocationBoundary(db, env, userId, isDeveloperAccount);
     const active = await sessions.findOne(
       { userId, status: { $in: ['running', 'paused'] } },
       { sort: { updatedAt: -1 } }
     );
 
     if (!active) {
-      return { session: null };
+      return { session: null, locationBoundary, isLocationExempt };
     }
 
     return {
+      locationBoundary,
+      isLocationExempt,
       session: {
         sessionId: active._id.toString(),
         subjectId: active.subjectId,
