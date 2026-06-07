@@ -12,7 +12,7 @@ type AppSingleton = {
   resolve: {};
 };
 
-export const config = {
+const config = {
   auth: {
     showTestLoginButton: true,
   },
@@ -81,9 +81,7 @@ export const config = {
 
 const allowedFontFiles = new Set(config.timerFontStyles.map((font) => font.fontFile));
 
-export type SchoolConfig = (typeof config.schools)[number];
-
-export function getSchoolById(schoolId?: string | null) {
+function getSchoolById(schoolId?: string | null) {
   return config.schools.find((school) => school.id === schoolId) ?? null;
 }
 

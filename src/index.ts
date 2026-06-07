@@ -23,7 +23,7 @@ dns.setServers(['1.1.1.1', '1.0.0.1']);
 const env = getEnv();
 const db = await initDb(env);
 
-const app = new Elysia()
+new Elysia()
   .use((app) => {
     app.onRequest((context: any) => {
       context._startTime = Date.now();
@@ -44,7 +44,7 @@ const app = new Elysia()
       const path = context.path ?? '/';
       const status = context.set?.status ?? 200;
 
-      // ANSI colors: magenta(date), cyan(method), green(path), bright yellow(duration)
+      // 개발 서버 로그에서 요청 흐름을 빠르게 읽을 수 있도록 핵심 값만 색상으로 구분합니다.
       const RESET = '\x1b[0m';
       const MAGENTA = '\x1b[35m';
       const CYAN = '\x1b[36m';

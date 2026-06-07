@@ -82,7 +82,7 @@ async function isInsideSchoolBoundary(db: Db, userId: ObjectId, latitude: number
   return isWithinRadius(latitude, longitude, policy.latitude, policy.longitude, policy.radiusMeters);
 }
 
-async function canSkipLocationBoundary(db: Db, env: Env, userId: ObjectId, isDeveloperAccount: boolean) {
+async function canSkipLocationBoundary(db: Db, userId: ObjectId, isDeveloperAccount: boolean) {
   if (isDeveloperAccount) {
     return true;
   }
@@ -117,13 +117,13 @@ function getStudySegmentsForUpdate(session: StudySession, endAt: Date) {
 
 async function checkSchoolBoundary(
   db: Db,
-  env: Env,
   userId: ObjectId,
   isDeveloperAccount: boolean,
   latitude: number,
   longitude: number
 ) {
-  if (await canSkipLocationBoundary(db, env, userId, isDeveloperAccount)) {
+  // 개발자/인증 예외/학교 미설정 계정은 위치 제한을 적용하지 않습니다.
+  if (await canSkipLocationBoundary(db, userId, isDeveloperAccount)) {
     return true;
   }
   return isInsideSchoolBoundary(db, userId, latitude, longitude);
@@ -278,9 +278,9 @@ export const sessionRoutes = new Elysia<'/sessions', AppSingleton>({ prefix: '/s
   .use(requireAuth())
   .post(
     '/start',
-    async ({ body, env, db, authUserId, isDeveloperAccount, set }) => {
+    async ({ body, db, authUserId, isDeveloperAccount, set }) => {
       const userId = new ObjectId(authUserId);
-      const inside = await checkSchoolBoundary(db, env, userId, isDeveloperAccount, body.latitude, body.longitude);
+      const inside = await checkSchoolBoundary(db, userId, isDeveloperAccount, body.latitude, body.longitude);
 
       if (!inside) {
         set.status = 403;
@@ -367,7 +367,7 @@ export const sessionRoutes = new Elysia<'/sessions', AppSingleton>({ prefix: '/s
       }
 
       const pausedAt = new Date(body.pausedAt ?? Date.now());
-      const inside = await checkSchoolBoundary(db, env, userId, isDeveloperAccount, body.latitude, body.longitude);
+      const inside = await checkSchoolBoundary(db, userId, isDeveloperAccount, body.latitude, body.longitude);
       const paused = await pauseStudySession(
         db,
         session,
@@ -392,7 +392,7 @@ export const sessionRoutes = new Elysia<'/sessions', AppSingleton>({ prefix: '/s
     '/resume',
     async ({ body, env, db, authUserId, isDeveloperAccount, set }) => {
       const userId = new ObjectId(authUserId);
-      const inside = await checkSchoolBoundary(db, env, userId, isDeveloperAccount, body.latitude, body.longitude);
+      const inside = await checkSchoolBoundary(db, userId, isDeveloperAccount, body.latitude, body.longitude);
 
       if (!inside) {
         set.status = 403;
@@ -494,11 +494,11 @@ function getKstWeekRange(date = new Date()) {
 sessionRoutes
   .post(
     '/location-check',
-    async ({ body, env, db, authUserId, isDeveloperAccount }) => {
+    async ({ body, db, authUserId, isDeveloperAccount }) => {
       const userId = new ObjectId(authUserId);
       const locationBoundary = await getLocationBoundaryPolicy(db, userId);
       return {
-        inside: await checkSchoolBoundary(db, env, userId, isDeveloperAccount, body.latitude, body.longitude),
+        inside: await checkSchoolBoundary(db, userId, isDeveloperAccount, body.latitude, body.longitude),
         radiusMeters: locationBoundary.radiusMeters,
       };
     },
@@ -522,7 +522,7 @@ sessionRoutes
       }
 
       const recordedAt = new Date(body.recordedAt ?? Date.now());
-      const inside = await checkSchoolBoundary(db, env, userId, isDeveloperAccount, body.latitude, body.longitude);
+      const inside = await checkSchoolBoundary(db, userId, isDeveloperAccount, body.latitude, body.longitude);
 
       if (!inside) {
         const paused = await pauseStudySession(
@@ -565,11 +565,11 @@ sessionRoutes
       detail: { summary: 'Update active session location' },
     }
   )
-  .get('/active', async ({ db, env, authUserId, isDeveloperAccount }) => {
+  .get('/active', async ({ db, authUserId, isDeveloperAccount }) => {
     const sessions = db.collection<OptionalId<StudySession>>('study_sessions');
     const userId = new ObjectId(authUserId);
     const locationBoundary = await getLocationBoundaryPolicy(db, userId);
-    const isLocationExempt = await canSkipLocationBoundary(db, env, userId, isDeveloperAccount);
+    const isLocationExempt = await canSkipLocationBoundary(db, userId, isDeveloperAccount);
     const active = await sessions.findOne(
       { userId, status: { $in: ['running', 'paused'] } },
       { sort: { updatedAt: -1 } }

@@ -599,7 +599,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
   })
   .post(
     '/notices',
-    async ({ db, env, authUserId, body, set }) => {
+    async ({ db, authUserId, body, set }) => {
       const user = await db.collection<OptionalId<User>>('users').findOne({ _id: new ObjectId(authUserId) });
       if (getUserRole(user ?? {}) !== 'admin') {
         set.status = 403;

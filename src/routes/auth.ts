@@ -172,6 +172,8 @@ async function sendVerificationEmail(env: Env, email: string, code: string, purp
   const logo = escapedLogoUrl
     ? `<img src="${escapedLogoUrl}" width="56" height="56" alt="스터디트립" style="display:block;border-radius:14px;object-fit:cover;" />`
     : '<div style="width:56px;height:56px;border-radius:14px;background:#6410EA;color:#ffffff;font-size:18px;font-weight:900;line-height:56px;text-align:center;">ST</div>';
+
+  // 이메일 클라이언트 호환성을 위해 인라인 스타일과 table layout을 유지합니다.
   const { error } = await resend.emails.send({
     from: env.RESEND_FROM_EMAIL,
     to: email,
@@ -190,6 +192,7 @@ async function sendVerificationEmail(env: Env, email: string, code: string, purp
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border-radius:24px;overflow:hidden;box-shadow:0 20px 60px rgba(52,18,112,0.16);">
             <tr>
               <td style="padding:34px 34px 20px;">
+                ${logo}
                 <div style="margin-top:22px;font-size:14px;line-height:20px;font-weight:800;color:#6410EA;">스터디트립</div>
                 <h1 style="margin:8px 0 0;font-size:26px;line-height:34px;font-weight:900;color:#181124;">${title}</h1>
                 <p style="margin:12px 0 0;font-size:15px;line-height:24px;color:#5d536f;">${description}</p>
@@ -206,6 +209,7 @@ async function sendVerificationEmail(env: Env, email: string, code: string, purp
             <tr>
               <td style="padding:0 34px 34px;">
                 <p style="margin:0;font-size:13px;line-height:21px;color:#7a7188;">이 코드는 10분 동안 사용할 수 있어요</p>
+                <p style="margin:8px 0 0;font-size:12px;line-height:19px;color:#9a90aa;">요청 계정: ${escapedEmail}</p>
                 <p style="margin:14px 0 0;font-size:12px;line-height:19px;color:#9a90aa;">본인이 요청하지 않았다면 이 메일을 무시해 주세요</p>
               </td>
             </tr>
@@ -234,7 +238,7 @@ async function consumeVerificationToken(db: Db, email: string, purpose: 'signup'
 }
 
 export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
-  .get('/kakao/redirect', ({ query, env, set }) => {
+  .get('/kakao/redirect', ({ query, env }) => {
     const target = new URL(`${env.KAKAO_NATIVE_REDIRECT_SCHEME}://oauthredirect`);
     const code = typeof query.code === 'string' ? query.code : null;
     const error = typeof query.error === 'string' ? query.error : null;

@@ -2,7 +2,7 @@ import { Db, ObjectId, OptionalId } from 'mongodb';
 
 import type { LoginSession } from '../types.js';
 
-export type LoginSessionMetadata = {
+type LoginSessionMetadata = {
   deviceId?: string;
   deviceName?: string;
   deviceType?: string;
@@ -31,7 +31,7 @@ type RequestIpSource = {
 
 const DEVICE_ID_MAX_LENGTH = 80;
 
-export function getHeaderValue(headers: HeaderMap, key: string) {
+function getHeaderValue(headers: HeaderMap, key: string) {
   return headers[key] ?? headers[key.toLowerCase()];
 }
 
@@ -67,7 +67,7 @@ function isPrivateIp(ip?: string | null) {
   );
 }
 
-export function getClientIp(headers: HeaderMap, source?: RequestIpSource) {
+function getClientIp(headers: HeaderMap, source?: RequestIpSource) {
   const forwarded = getHeaderValue(headers, 'x-forwarded-for');
   if (forwarded) {
     return normalizeIpAddress(forwarded.split(',')[0]);
@@ -85,7 +85,7 @@ export function getClientIp(headers: HeaderMap, source?: RequestIpSource) {
   return null;
 }
 
-export function getRegionName(headers: HeaderMap, ipAddress?: string | null) {
+function getRegionName(headers: HeaderMap, ipAddress?: string | null) {
   const fromHeaders =
     getHeaderValue(headers, 'x-vercel-ip-city') ??
     getHeaderValue(headers, 'x-vercel-ip-country-region') ??
@@ -101,14 +101,14 @@ export function getRegionName(headers: HeaderMap, ipAddress?: string | null) {
   );
 }
 
-export function inferDeviceType(platform: string, userAgent: string) {
+function inferDeviceType(platform: string, userAgent: string) {
   if (platform === 'web') return 'web';
   if (/ipad|tablet|tab|sm-x/i.test(`${platform} ${userAgent}`)) return 'tablet';
   if (/mobile|android|iphone|ipad|expo/i.test(`${platform} ${userAgent}`)) return 'smartphone';
   return 'web';
 }
 
-export function inferDeviceName(platform: string, userAgent: string) {
+function inferDeviceName(platform: string, userAgent: string) {
   if (/Expo/i.test(userAgent)) return 'Expo Go';
   if (/iPhone/i.test(userAgent)) return 'iPhone';
   if (/iPad/i.test(userAgent)) return 'iPad';
@@ -126,7 +126,7 @@ function getUaMatch(userAgent: string, pattern: RegExp) {
   return match?.[1]?.replace(/_/g, '.') ?? null;
 }
 
-export function inferBrowserName(userAgent: string) {
+function inferBrowserName(userAgent: string) {
   if (/Edg\//i.test(userAgent)) return 'Microsoft Edge';
   if (/Chrome\//i.test(userAgent) && !/Edg\//i.test(userAgent)) return 'Chrome';
   if (/Firefox\//i.test(userAgent)) return 'Firefox';
@@ -134,7 +134,7 @@ export function inferBrowserName(userAgent: string) {
   return null;
 }
 
-export function inferBrowserVersion(userAgent: string) {
+function inferBrowserVersion(userAgent: string) {
   return (
     getUaMatch(userAgent, /Edg\/([\d.]+)/i) ??
     getUaMatch(userAgent, /Chrome\/([\d.]+)/i) ??
@@ -143,7 +143,7 @@ export function inferBrowserVersion(userAgent: string) {
   );
 }
 
-export function inferOsName(platform: string, userAgent: string) {
+function inferOsName(platform: string, userAgent: string) {
   if (/Windows NT/i.test(userAgent)) return 'Windows';
   if (/Android/i.test(userAgent)) return 'Android';
   if (/iPhone|iPad|iPod/i.test(userAgent)) return 'iOS';
@@ -161,7 +161,7 @@ export function normalizeClientOsName(osName: string, platform: string, userAgen
   return osName || inferred;
 }
 
-export function inferOsVersion(userAgent: string) {
+function inferOsVersion(userAgent: string) {
   return (
     getUaMatch(userAgent, /Windows NT ([\d.]+)/i) ??
     getUaMatch(userAgent, /Android ([\d.]+)/i) ??
@@ -209,6 +209,7 @@ export function buildLoginSessionMetadata({
   const longitude = normalizeCoordinate(body?.longitude);
   const ipAddress = getClientIp(headers, { request, server });
 
+  // 클라이언트가 직접 보낸 값이 있으면 우선하고, 없으면 서버에서 확인한 IP/지역 정보를 보강합니다.
   return {
     deviceId,
     deviceName: deviceName || inferDeviceName(platform, userAgent),
@@ -219,8 +220,8 @@ export function buildLoginSessionMetadata({
     browserVersion: browserVersion || inferBrowserVersion(userAgent),
     osName: normalizeClientOsName(osName, platform, userAgent),
     osVersion: osVersion || inferOsVersion(userAgent),
-    ipAddress: bodyIpAddress || null,
-    regionName: regionName || null,
+    ipAddress: bodyIpAddress || ipAddress,
+    regionName: regionName || getRegionName(headers, ipAddress),
     cityName: cityName || null,
     districtName: districtName || null,
     countryName: countryName || null,
