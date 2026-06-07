@@ -4,7 +4,7 @@ import { Db, ObjectId, OptionalId } from 'mongodb';
 import type { Env } from '../config.js';
 import type { Goal, LoginSession, Notice, StudySession, Subject, TimerPreferences, User } from '../types.js';
 import { notifyWeeklyLeaderboardChanged } from './leaderboard.js';
-import { buildLocationBoundaryConfig } from './app-config.js';
+import { buildLocationBoundaryConfig, getSchoolByVerificationCode } from './app-config.js';
 import {
   buildLoginSessionMetadata,
   isLoginSessionActive,
@@ -85,6 +85,22 @@ function getUserRole(user: Partial<Pick<User, 'role'>>) {
 
 function isLocationExemptUser(user: Pick<User, '_id' | 'provider'>) {
   return user.provider === 'dev' || buildLocationBoundaryConfig().exemptUserIds.includes(user._id.toString());
+}
+
+function toAuthUserResponse(user: User) {
+  return {
+    id: user._id.toString(),
+    email: user.email,
+    name: user.name,
+    avatarUrl: user.avatarUrl,
+    provider: user.provider,
+    role: getUserRole(user),
+    isDeveloper: user.provider === 'dev',
+    isLocationExempt: isLocationExemptUser(user),
+    schoolId: user.schoolId ?? null,
+    schoolName: user.schoolName ?? null,
+    schoolVerifiedAt: user.schoolVerifiedAt?.toISOString() ?? null,
+  };
 }
 
 function toNoticeResponse(notice: Notice) {
@@ -183,16 +199,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
     }
 
     return {
-      user: {
-        id: user._id.toString(),
-        email: user.email,
-        name: user.name,
-        avatarUrl: user.avatarUrl,
-        provider: user.provider,
-        role: getUserRole(user),
-        isDeveloper: user.provider === 'dev',
-        isLocationExempt: isLocationExemptUser(user),
-      },
+      user: toAuthUserResponse(user as User),
     };
   })
   .patch(
@@ -211,16 +218,7 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
 
       notifyWeeklyLeaderboardChanged(db);
       return {
-        user: {
-          id: user._id.toString(),
-          email: user.email,
-          name: user.name,
-          avatarUrl: user.avatarUrl,
-          provider: user.provider,
-          role: getUserRole(user),
-          isDeveloper: user.provider === 'dev',
-          isLocationExempt: isLocationExemptUser(user),
-        },
+        user: toAuthUserResponse(user as User),
       };
     },
     {
@@ -229,6 +227,80 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
       }),
     }
   )
+  .post(
+    '/me/school-verification',
+    async ({ db, authUserId, body, set }) => {
+      const school = getSchoolByVerificationCode(body.code);
+      if (!school) {
+        set.status = 400;
+        return { error: '학교 인증코드가 올바르지 않아요.' };
+      }
+
+      const now = new Date();
+      const user = await db.collection<OptionalId<User>>('users').findOneAndUpdate(
+        { _id: new ObjectId(authUserId) },
+        {
+          $set: {
+            schoolId: school.id,
+            schoolName: school.name,
+            schoolVerifiedAt: now,
+            updatedAt: now,
+          },
+        },
+        { returnDocument: 'after' }
+      );
+
+      if (!user) {
+        set.status = 404;
+        return { error: 'User not found.' };
+      }
+
+      notifyWeeklyLeaderboardChanged(db);
+      const { exemptUserIds: _exemptUserIds, ...locationBoundary } = buildLocationBoundaryConfig(school.id);
+      return {
+        user: toAuthUserResponse(user as User),
+        school: {
+          id: school.id,
+          name: school.name,
+        },
+        locationBoundary,
+      };
+    },
+    {
+      body: t.Object({
+        code: t.String({ minLength: 1, maxLength: 80 }),
+      }),
+    }
+  )
+  .delete('/me/school-verification', async ({ db, authUserId, set }) => {
+    const now = new Date();
+    const user = await db.collection<OptionalId<User>>('users').findOneAndUpdate(
+      { _id: new ObjectId(authUserId) },
+      {
+        $unset: {
+          schoolId: '',
+          schoolName: '',
+          schoolVerifiedAt: '',
+        },
+        $set: {
+          updatedAt: now,
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found.' };
+    }
+
+    notifyWeeklyLeaderboardChanged(db);
+    const { exemptUserIds: _exemptUserIds, ...locationBoundary } = buildLocationBoundaryConfig();
+    return {
+      user: toAuthUserResponse(user as User),
+      locationBoundary,
+    };
+  })
   .get('/account/sessions', async ({ db, authUserId, headers, query, request, server }) => {
     const userId = new ObjectId(authUserId);
     const currentDeviceId = normalizeDeviceId(String(query.deviceId ?? query.device_id ?? headers['x-device-id'] ?? ''));

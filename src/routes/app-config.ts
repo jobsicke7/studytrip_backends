@@ -23,15 +23,28 @@ export const config = {
     radiusMeters: 250,
     exemptUserIds: ['6a22c57336e08f80e926f15c'] as string[],
   },
+  schools: [
+    {
+      id: 'xx-high',
+      name: 'xx고등학교',
+      verificationCode: 'XXHS-2026',
+      locationBoundary: {
+        enabled: true,
+        latitude: 37.56249619,
+        longitude: 127.0894052,
+        radiusMeters: 250,
+      },
+    },
+  ],
   backgrounds: [
     { id: 'none', label: '배경 없음' },
-    { id: 'seoul_city_view', label: '서울 도시뷰' },
-    { id: 'japan_street', label: '일본 거리' },
+    { id: 'seoul_city_view', label: '도시뷰' },
+    { id: 'japan_street', label: '거리' },
     { id: 'fire', label: '모닥불' },
     { id: 'library', label: '도서관' },
     { id: 'sakuraroad', label: '벚꽃 길' },
     { id: 'space', label: '우주' },
-    { id: 'japanrail', label: '일본 철도역' },
+    { id: 'japanrail', label: '기차역' },
     { id: 'oceanroad', label: '해변 도로' },
   ],
   whiteNoise: {
@@ -68,8 +81,27 @@ export const config = {
 
 const allowedFontFiles = new Set(config.timerFontStyles.map((font) => font.fontFile));
 
-export function buildLocationBoundaryConfig() {
-  return config.locationBoundary;
+export type SchoolConfig = (typeof config.schools)[number];
+
+export function getSchoolById(schoolId?: string | null) {
+  return config.schools.find((school) => school.id === schoolId) ?? null;
+}
+
+export function getSchoolByVerificationCode(code: string) {
+  const normalizedCode = code.trim().toUpperCase();
+  return config.schools.find((school) => school.verificationCode.toUpperCase() === normalizedCode) ?? null;
+}
+
+export function buildLocationBoundaryConfig(schoolId?: string | null) {
+  const school = getSchoolById(schoolId);
+  if (!school) {
+    return config.locationBoundary;
+  }
+
+  return {
+    ...config.locationBoundary,
+    ...school.locationBoundary,
+  };
 }
 
 function getFontContentType(fontFile: string) {
@@ -105,11 +137,15 @@ function buildAppConfig(env: Env, apiBaseUrl: string) {
       showTestLoginButton: config.auth.showTestLoginButton,
     },
     locationBoundary: {
-      enabled: locationBoundary.enabled,
+      enabled: false,
       latitude: locationBoundary.latitude,
       longitude: locationBoundary.longitude,
       radiusMeters: locationBoundary.radiusMeters,
     },
+    schools: config.schools.map((school) => ({
+      id: school.id,
+      name: school.name,
+    })),
     backgrounds: config.backgrounds.map((background) => ({
       ...background,
       imageUrl: getBackgroundUrl(background.id),

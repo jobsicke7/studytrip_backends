@@ -143,6 +143,19 @@ async function buildLeaderboard(
   authUserId: string,
   range: { start: Date; end: Date }
 ) {
+  const authUser = await db.collection<OptionalId<User>>('users').findOne(
+    { _id: new ObjectId(authUserId) },
+    { projection: { schoolId: 1, schoolName: 1 } }
+  );
+  if (!authUser?.schoolId) {
+    return {
+      range,
+      school: null,
+      items: [],
+      me: null,
+    };
+  }
+
   const sessions = db.collection<OptionalId<StudySession>>('study_sessions');
   const results = await sessions.aggregate<{ userId: ObjectId; stoppedAtResolved: Date | null; durationSeconds: number }>([
     {
@@ -203,7 +216,7 @@ async function buildLeaderboard(
   const userIds = Array.from(new Set(allRankedTotals.map((item) => item.userId.toString()))).map((id) => new ObjectId(id));
   const users = await db
     .collection<OptionalId<User>>('users')
-    .find({ _id: { $in: userIds } })
+    .find({ _id: { $in: userIds }, schoolId: authUser.schoolId })
     .toArray();
   const userMap = new Map(users.filter((user) => !isDeveloperUser(user)).map((user) => [user._id.toString(), user]));
   const validRankedTotals = allRankedTotals.filter((item) => userMap.has(item.userId.toString()));
@@ -228,6 +241,10 @@ async function buildLeaderboard(
 
   return {
     range,
+    school: {
+      id: authUser.schoolId,
+      name: authUser.schoolName ?? '',
+    },
     items,
     me: myRankedRow && myIndex >= 0 ? buildItem(myRankedRow, myIndex) : null,
   };

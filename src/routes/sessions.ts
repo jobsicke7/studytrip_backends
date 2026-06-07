@@ -65,13 +65,17 @@ function getStudyDurationSeconds(session: StudySession, accumulatedSeconds: numb
   );
 }
 
-function getLocationBoundaryPolicy() {
-  const { exemptUserIds: _exemptUserIds, ...policy } = buildLocationBoundaryConfig();
+async function getLocationBoundaryPolicy(db: Db, userId: ObjectId) {
+  const user = await db.collection<OptionalId<User>>('users').findOne(
+    { _id: userId },
+    { projection: { schoolId: 1 } }
+  );
+  const { exemptUserIds: _exemptUserIds, ...policy } = buildLocationBoundaryConfig(user?.schoolId);
   return policy;
 }
 
-function isInsideSchoolBoundary(env: Env, latitude: number, longitude: number) {
-  const policy = getLocationBoundaryPolicy();
+async function isInsideSchoolBoundary(db: Db, userId: ObjectId, latitude: number, longitude: number) {
+  const policy = await getLocationBoundaryPolicy(db, userId);
   if (!policy.enabled) {
     return true;
   }
@@ -89,9 +93,9 @@ async function canSkipLocationBoundary(db: Db, env: Env, userId: ObjectId, isDev
 
   const user = await db.collection<OptionalId<User>>('users').findOne(
     { _id: userId },
-    { projection: { provider: 1, email: 1 } }
+    { projection: { provider: 1, email: 1, schoolId: 1 } }
   );
-  return user?.provider === 'dev';
+  return user?.provider === 'dev' || !user?.schoolId;
 }
 
 function getStudySegmentsForUpdate(session: StudySession, endAt: Date) {
@@ -122,7 +126,7 @@ async function checkSchoolBoundary(
   if (await canSkipLocationBoundary(db, env, userId, isDeveloperAccount)) {
     return true;
   }
-  return isInsideSchoolBoundary(env, latitude, longitude);
+  return isInsideSchoolBoundary(db, userId, latitude, longitude);
 }
 
 async function findActiveSession(
@@ -492,9 +496,10 @@ sessionRoutes
     '/location-check',
     async ({ body, env, db, authUserId, isDeveloperAccount }) => {
       const userId = new ObjectId(authUserId);
+      const locationBoundary = await getLocationBoundaryPolicy(db, userId);
       return {
         inside: await checkSchoolBoundary(db, env, userId, isDeveloperAccount, body.latitude, body.longitude),
-        radiusMeters: buildLocationBoundaryConfig().radiusMeters,
+        radiusMeters: locationBoundary.radiusMeters,
       };
     },
     {
@@ -563,7 +568,7 @@ sessionRoutes
   .get('/active', async ({ db, env, authUserId, isDeveloperAccount }) => {
     const sessions = db.collection<OptionalId<StudySession>>('study_sessions');
     const userId = new ObjectId(authUserId);
-    const locationBoundary = getLocationBoundaryPolicy();
+    const locationBoundary = await getLocationBoundaryPolicy(db, userId);
     const isLocationExempt = await canSkipLocationBoundary(db, env, userId, isDeveloperAccount);
     const active = await sessions.findOne(
       { userId, status: { $in: ['running', 'paused'] } },

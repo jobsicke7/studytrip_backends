@@ -108,6 +108,22 @@ function isLocationExemptUser(user: Pick<User, '_id' | 'provider'>) {
   return user.provider === 'dev' || buildLocationBoundaryConfig().exemptUserIds.includes(user._id.toString());
 }
 
+function toAuthUserResponse(user: User) {
+  return {
+    id: user._id.toString(),
+    email: user.email,
+    name: user.name,
+    avatarUrl: user.avatarUrl,
+    provider: user.provider,
+    isDeveloper: user.provider === 'dev',
+    isLocationExempt: isLocationExemptUser(user),
+    role: getUserRole(user),
+    schoolId: user.schoolId ?? null,
+    schoolName: user.schoolName ?? null,
+    schoolVerifiedAt: user.schoolVerifiedAt?.toISOString() ?? null,
+  };
+}
+
 function hashValue(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -435,16 +451,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
 
       return {
         token,
-        user: {
-          id: user._id.toString(),
-          email: user.email,
-          name: user.name,
-          avatarUrl: user.avatarUrl,
-          provider: user.provider,
-          isDeveloper: false,
-          isLocationExempt: isLocationExemptUser(user),
-          role: getUserRole(user),
-        },
+        user: toAuthUserResponse(user as User),
       };
     },
     {
@@ -547,16 +554,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
 
       return {
         token,
-        user: {
-          id: user._id.toString(),
-          email: user.email,
-          name: user.name,
-          avatarUrl: user.avatarUrl,
-          provider: user.provider,
-          isDeveloper: user.provider === 'dev',
-          isLocationExempt: isLocationExemptUser(user),
-          role: getUserRole(user),
-        },
+        user: toAuthUserResponse(user as User),
       };
     },
     {
@@ -727,16 +725,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
 
       return {
         token,
-        user: {
-          id: user._id.toString(),
-          email: user.email,
-          name: user.name,
-          avatarUrl: user.avatarUrl,
-          provider: user.provider,
-          isDeveloper: user.provider === 'dev',
-          isLocationExempt: isLocationExemptUser(user),
-          role: getUserRole(user),
-        },
+        user: toAuthUserResponse(user as User),
       };
     },
     {
@@ -870,16 +859,7 @@ export const authRoutes = new Elysia<'/auth', AppSingleton>({ prefix: '/auth' })
 
       return {
         token,
-        user: {
-          id: user._id.toString(),
-          email: user.email,
-          name: user.name,
-          avatarUrl: user.avatarUrl,
-          provider: user.provider,
-          isDeveloper: user.provider === 'dev',
-          isLocationExempt: isLocationExemptUser(user),
-          role: getUserRole(user),
-        },
+        user: toAuthUserResponse(user as User),
       };
     },
     {

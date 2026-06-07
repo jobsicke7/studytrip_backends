@@ -8,6 +8,9 @@ export type User = {
   avatarUrl?: string;
   provider: 'google' | 'kakao' | 'email' | 'dev';
   role: 'user' | 'admin';
+  schoolId?: string | null;
+  schoolName?: string | null;
+  schoolVerifiedAt?: Date | null;
   passwordHash?: string;
   createdAt: Date;
   updatedAt: Date;
