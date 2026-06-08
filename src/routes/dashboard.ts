@@ -1263,79 +1263,55 @@ export const dashboardRoutes = new Elysia<'', AppSingleton>()
     };
   })
   .get(
+    '/stats/records/preload',
+    async ({ db, authUserId, query }) => buildRecordStatsPreload(db, authUserId, query.anchors),
+    {
+      query: t.Object({
+        anchors: t.Optional(t.String()),
+      }),
+    }
+  )
+  .get(
     '/stats/records',
     async ({ db, authUserId, query }) => {
+    if (query.preload === '1' || query.preload === 'true' || query.anchors) {
+      return buildRecordStatsPreload(db, authUserId, query.anchors);
+    }
+
     const userId = new ObjectId(authUserId);
     const subjects = await ensureSubjects(db, userId);
     const subjectLabels = new Map(subjects.map((subject) => [subject.subjectId, subject.label]));
     const weekAnchor = parseAnchorDate(query.weekAnchor);
     const monthAnchor = parseAnchorDate(query.monthAnchor);
-    const weekDays = getKstWeekDays(weekAnchor);
-    const monthDays = getKstMonthDays(monthAnchor);
-    const weekTotals = await buildDailyTotals(db, userId, weekDays[0].start, weekDays[6].end);
-    const previousWeekRange = getKstWeekRange(new Date(weekDays[0].start.getTime() - 24 * 60 * 60 * 1000));
-    const previousWeekTotalSeconds = await sumStoppedSeconds(db, userId, previousWeekRange);
-    const monthTotals = await buildDailyTotals(db, userId, monthDays[0].start, monthDays[monthDays.length - 1].end);
-    const hourlyTotals = await buildHourlyTotals(db, userId, weekDays[0].start, weekDays[6].end);
-    const overview = await buildRecordOverview(db, userId);
-    const recentSessions = await buildRecentSessions(db, userId, subjectLabels, 8);
-    const streak = await buildStreak(db, userId);
-    const maxWeekSeconds = Math.max(1, ...weekDays.map((day) => weekTotals.get(day.key) ?? 0));
-    const maxHourSeconds = Math.max(1, ...Array.from(hourlyTotals.values()));
-
-    return {
-      overview: {
-        totalSeconds: overview.totalSeconds,
-        sessionCount: overview.sessionCount,
-        streakDays: streak.current,
-        bestStreakDays: streak.best,
-      },
-      week: {
-        rangeLabel: `${formatKstShortDate(weekDays[0].key)} - ${formatKstShortDate(weekDays[6].key)}`,
-        totalSeconds: weekDays.reduce((sum, day) => sum + (weekTotals.get(day.key) ?? 0), 0),
-        previousWeekTotalSeconds,
-        items: weekDays.map((day) => {
-          const totalSeconds = weekTotals.get(day.key) ?? 0;
-          return {
-            key: day.key,
-            label: day.label,
-            dateLabel: formatKstShortDate(day.key),
-            totalSeconds,
-            ratio: totalSeconds / maxWeekSeconds,
-            isToday: day.isToday,
-          };
-        }),
-      },
-      month: {
-        label: formatKstMonthLabel(monthAnchor),
-        days: monthDays.map((day) => ({
-          key: day.key,
-          day: day.day,
-          weekday: day.weekday,
-          isCurrentMonth: day.isCurrentMonth,
-          isToday: day.isToday,
-          totalSeconds: monthTotals.get(day.key) ?? 0,
-        })),
-      },
-      hourlyPattern: {
-        days: weekDays.map((day, index) => ({
-          key: day.key,
-          label: day.label,
-          dateLabel: formatKstShortDate(day.key),
-          weekday: index,
-          slots: Array.from({ length: 24 }, (_, hour) => {
-            const totalSeconds = hourlyTotals.get(`${day.key}:${String(hour).padStart(2, '0')}`) ?? 0;
-            return { hour, totalSeconds, ratio: totalSeconds / maxHourSeconds };
-          }),
-        })),
-      },
+    const [
+      overview,
       recentSessions,
-    };
+      streak,
+      sessions,
+    ] = await Promise.all([
+      buildRecordOverview(db, userId),
+      buildRecentSessions(db, userId, subjectLabels, 8),
+      buildStreak(db, userId),
+      fetchRecordSessionsForAnchors(db, userId, [weekAnchor, monthAnchor]),
+    ]);
+
+    return buildRecordStatsResponse(weekAnchor, monthAnchor, sessions, overview, recentSessions, streak);
     },
     {
       query: t.Object({
         weekAnchor: t.Optional(t.String()),
         monthAnchor: t.Optional(t.String()),
+        anchors: t.Optional(t.String()),
+        preload: t.Optional(t.String()),
+      }),
+    }
+  )
+  .get(
+    '/stats/records-preload',
+    async ({ db, authUserId, query }) => buildRecordStatsPreload(db, authUserId, query.anchors),
+    {
+      query: t.Object({
+        anchors: t.Optional(t.String()),
       }),
     }
   );
@@ -1385,6 +1361,26 @@ async function ensureSubjects(db: Db, userId: ObjectId) {
   );
 
   return subjects.find({ userId }).sort({ order: 1 }).toArray();
+}
+
+async function buildRecordStatsPreload(db: Db, authUserId: string, anchorsQuery?: string) {
+  const userId = new ObjectId(authUserId);
+  const anchors = normalizeRecordPreloadAnchors(anchorsQuery);
+  const subjects = await ensureSubjects(db, userId);
+  const subjectLabels = new Map(subjects.map((subject) => [subject.subjectId, subject.label]));
+  const [overview, recentSessions, streak, sessions] = await Promise.all([
+    buildRecordOverview(db, userId),
+    buildRecentSessions(db, userId, subjectLabels, 8),
+    buildStreak(db, userId),
+    fetchRecordSessionsForAnchors(db, userId, anchors.map((anchor) => parseAnchorDate(anchor))),
+  ]);
+
+  return {
+    items: anchors.map((anchor) => ({
+      anchor,
+      stats: buildRecordStatsResponse(parseAnchorDate(anchor), parseAnchorDate(anchor), sessions, overview, recentSessions, streak),
+    })),
+  };
 }
 
 async function normalizeSubjectOrder(db: Db, userId: ObjectId) {
@@ -1744,10 +1740,29 @@ async function buildDailyTotals(db: Db, userId: ObjectId, start: Date, end: Date
   return distributeSessionsByDay(sessions, start, end);
 }
 
-async function buildHourlyTotals(db: Db, userId: ObjectId, start: Date, end: Date) {
-  const sessions = await db
+type RecordStatsSession = { stoppedAtResolved: Date | null; durationSeconds: number };
+type RecordOverview = Awaited<ReturnType<typeof buildRecordOverview>>;
+type RecentSessionItem = Awaited<ReturnType<typeof buildRecentSessions>>[number];
+type StreakStats = Awaited<ReturnType<typeof buildStreak>>;
+
+async function fetchRecordSessionsForAnchors(db: Db, userId: ObjectId, anchors: Date[]) {
+  const ranges = anchors.flatMap((anchor) => {
+    const weekDays = getKstWeekDays(anchor);
+    const monthDays = getKstMonthDays(anchor);
+    const previousWeekRange = getKstWeekRange(new Date(weekDays[0].start.getTime() - 24 * 60 * 60 * 1000));
+    return [
+      { start: previousWeekRange.start, end: previousWeekRange.end },
+      { start: weekDays[0].start, end: weekDays[6].end },
+      { start: monthDays[0].start, end: monthDays[monthDays.length - 1].end },
+    ];
+  });
+  const earliestStart = ranges.reduce((earliest, range) => (
+    range.start.getTime() < earliest.getTime() ? range.start : earliest
+  ), ranges[0]?.start ?? new Date());
+
+  return db
     .collection<OptionalId<StudySession>>('study_sessions')
-    .aggregate<{ stoppedAtResolved: Date | null; durationSeconds: number }>([
+    .aggregate<RecordStatsSession>([
       {
         $addFields: {
           stoppedAtResolved: {
@@ -1764,7 +1779,7 @@ async function buildHourlyTotals(db: Db, userId: ObjectId, start: Date, end: Dat
         $match: {
           userId,
           status: 'stopped',
-          stoppedAtResolved: { $gt: start },
+          stoppedAtResolved: { $gt: earliestStart },
           durationSeconds: { $gt: 0 },
         },
       },
@@ -1776,8 +1791,74 @@ async function buildHourlyTotals(db: Db, userId: ObjectId, start: Date, end: Dat
       },
     ])
     .toArray();
+}
 
-  return distributeSessionsByHour(sessions, start, end, 'day-hour');
+function buildRecordStatsResponse(
+  weekAnchor: Date,
+  monthAnchor: Date,
+  sessions: RecordStatsSession[],
+  overview: RecordOverview,
+  recentSessions: RecentSessionItem[],
+  streak: StreakStats
+) {
+  const weekDays = getKstWeekDays(weekAnchor);
+  const monthDays = getKstMonthDays(monthAnchor);
+  const previousWeekRange = getKstWeekRange(new Date(weekDays[0].start.getTime() - 24 * 60 * 60 * 1000));
+  const weekTotals = distributeSessionsByDay(sessions, weekDays[0].start, weekDays[6].end);
+  const previousWeekTotalSeconds = sessions.reduce((sum, session) => sum + getSessionOverlapSeconds(session, previousWeekRange.start, previousWeekRange.end), 0);
+  const monthTotals = distributeSessionsByDay(sessions, monthDays[0].start, monthDays[monthDays.length - 1].end);
+  const hourlyTotals = distributeSessionsByHour(sessions, weekDays[0].start, weekDays[6].end, 'day-hour');
+  const maxWeekSeconds = Math.max(1, ...weekDays.map((day) => weekTotals.get(day.key) ?? 0));
+  const maxHourSeconds = Math.max(1, ...Array.from(hourlyTotals.values()));
+
+  return {
+    overview: {
+      totalSeconds: overview.totalSeconds,
+      sessionCount: overview.sessionCount,
+      streakDays: streak.current,
+      bestStreakDays: streak.best,
+    },
+    week: {
+      rangeLabel: `${formatKstShortDate(weekDays[0].key)} - ${formatKstShortDate(weekDays[6].key)}`,
+      totalSeconds: weekDays.reduce((sum, day) => sum + (weekTotals.get(day.key) ?? 0), 0),
+      previousWeekTotalSeconds,
+      items: weekDays.map((day) => {
+        const totalSeconds = weekTotals.get(day.key) ?? 0;
+        return {
+          key: day.key,
+          label: day.label,
+          dateLabel: formatKstShortDate(day.key),
+          totalSeconds,
+          ratio: totalSeconds / maxWeekSeconds,
+          isToday: day.isToday,
+        };
+      }),
+    },
+    month: {
+      label: formatKstMonthLabel(monthAnchor),
+      days: monthDays.map((day) => ({
+        key: day.key,
+        day: day.day,
+        weekday: day.weekday,
+        isCurrentMonth: day.isCurrentMonth,
+        isToday: day.isToday,
+        totalSeconds: monthTotals.get(day.key) ?? 0,
+      })),
+    },
+    hourlyPattern: {
+      days: weekDays.map((day, index) => ({
+        key: day.key,
+        label: day.label,
+        dateLabel: formatKstShortDate(day.key),
+        weekday: index,
+        slots: Array.from({ length: 24 }, (_, hour) => {
+          const totalSeconds = hourlyTotals.get(`${day.key}:${String(hour).padStart(2, '0')}`) ?? 0;
+          return { hour, totalSeconds, ratio: totalSeconds / maxHourSeconds };
+        }),
+      })),
+    },
+    recentSessions,
+  };
 }
 
 async function buildRecordOverview(db: Db, userId: ObjectId) {
@@ -2201,6 +2282,28 @@ function parseAnchorDate(anchor?: string) {
     return new Date();
   }
   return parsed;
+}
+
+function normalizeRecordPreloadAnchors(value: string | undefined) {
+  const rawAnchors = value
+    ? value.split(',').map((anchor) => anchor.trim()).filter(Boolean)
+    : [getKstDateKey(new Date())];
+  const uniqueAnchors: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawAnchor of rawAnchors) {
+    const key = getKstDateKey(parseAnchorDate(rawAnchor));
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    uniqueAnchors.push(key);
+    if (uniqueAnchors.length >= 25) {
+      break;
+    }
+  }
+
+  return uniqueAnchors.length > 0 ? uniqueAnchors : [getKstDateKey(new Date())];
 }
 
 function clampLimit(value: string | undefined, min: number, max: number, fallback: number) {
